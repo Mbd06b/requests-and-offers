@@ -4,6 +4,13 @@ import { defineConfig, type PluginOption } from 'vite';
 
 export default defineConfig({
   plugins: [sveltekit(), purgeCss()] as PluginOption[],
+  server: {
+    host: '0.0.0.0',
+    allowedHosts: [
+      '.ethosengine.com', // Allow all subdomains of ethosengine.com
+      'localhost'
+    ]
+  },
   build: {
     chunkSizeWarningLimit: 2000,
     target: 'es2022' // Support top-level await
