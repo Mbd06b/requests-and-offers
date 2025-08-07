@@ -8,6 +8,7 @@ export type ZomeName =
   | 'administration'
   | 'service_types'
   | 'mediums_of_exchange'
+  | 'exchanges'
   | 'misc'
   | 'hrea_economic_event'
   | 'hrea_observation';
@@ -29,6 +30,8 @@ export interface HolochainClientService {
     capSecret?: Uint8Array | undefined,
     roleName?: RoleName
   ): Promise<unknown>;
+
+  verifyConnection(): Promise<boolean>;
 }
 
 /**
@@ -49,11 +52,16 @@ function createHolochainClientService(): HolochainClientService {
    * Connects the client to the Host backend with retry logic.
    */
   async function connectClient(): Promise<void> {
+    // Reset connection state
+    isConnected = false;
+    client = null;
+
     const maxRetries = 3;
     let retryCount = 0;
 
     while (retryCount < maxRetries) {
       try {
+        console.log(`Attempting to connect to Holochain (attempt ${retryCount + 1}/${maxRetries})`);
         
         // Step 1: Connect to admin interface to get authentication token
         const currentHost = window.location.host;
@@ -65,8 +73,8 @@ function createHolochainClientService(): HolochainClientService {
           // IMPORTANT: Click port 8888 notification FIRST, then port 8890 notification SECOND, then port 8889 notification THIRD, 
           // if you get the wrong assigned redirects, then just update the url to the port accordingly, svelte hot-reloads this component
           const workspacePrefix = currentHost.split('-')[0];
-          adminUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-2.code.ethosengine.com/`;  // Port 8888
-          appConnectionUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-3.code.ethosengine.com/`;  // Port 8890
+          adminUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-3.code.ethosengine.com/`;  // Port 8888
+          appConnectionUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-2.code.ethosengine.com/`;  // Port 8890
           console.log('Eclipse Che - Admin URL (redirect-1):', adminUrl);
           console.log('Eclipse Che - App URL (redirect-2):', appConnectionUrl);
         } else {
@@ -134,20 +142,24 @@ function createHolochainClientService(): HolochainClientService {
         });
         
         isConnected = true;
-        console.log('Successfully connected to Holochain conductor');
+        console.log('✅ Successfully connected to Holochain conductor');
         return;
       } catch (error) {
         retryCount++;
-        console.warn(`Connection attempt ${retryCount} failed:`, error);
-        
+        console.warn(`❌ Connection attempt ${retryCount} failed:`, error);
+
         if (retryCount === maxRetries) {
           console.error('Failed to connect to Holochain after', maxRetries, 'attempts');
           console.error('Make sure the Holochain conductor is running. Try running "bun start" instead of just the UI.');
+          isConnected = false;
+          client = null;
           throw error;
         }
-        
+
         // Wait before retrying (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+        const delay = Math.pow(2, retryCount) * 1000;
+        console.log(`⏳ Retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
@@ -172,6 +184,26 @@ function createHolochainClientService(): HolochainClientService {
    * @param {RoleName} roleName - The name of the role to call the function on. Defaults to 'requests_and_offers'.
    * @returns {Promise<unknown>} - The result of the zome function call.
    */
+  /**
+   * Verifies if the client is truly connected and working
+   */
+  async function verifyConnection(): Promise<boolean> {
+    if (!client || !isConnected) {
+      return false;
+    }
+
+    try {
+      // Try to get app info as a connectivity test
+      await client.appInfo();
+      return true;
+    } catch (error) {
+      console.warn('Connection verification failed:', error);
+      isConnected = false;
+      client = null;
+      return false;
+    }
+  }
+
   async function callZome(
     zomeName: ZomeName,
     fnName: string,
@@ -193,6 +225,15 @@ function createHolochainClientService(): HolochainClientService {
       });
     } catch (error) {
       console.error(`Error calling zome function ${roleName}.${zomeName}.${fnName}:`, error);
+      
+      // Check if this is a connection error
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('WebSocket') || errorMessage.includes('connection')) {
+        console.warn('Detected connection error, marking as disconnected');
+        isConnected = false;
+        client = null;
+      }
+      
       throw error;
     }
   }
@@ -212,7 +253,8 @@ function createHolochainClientService(): HolochainClientService {
     // Methods
     connectClient,
     getAppInfo,
-    callZome
+    callZome,
+    verifyConnection
   };
 }
 

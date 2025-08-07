@@ -201,9 +201,67 @@ export const HREA_CONTEXTS = {
   UPDATE_ORGANIZATION: 'Failed to update organization agent',
   GET_AGENT: 'Failed to get agent',
   GET_AGENTS: 'Failed to get agents',
+  CREATE_PROPOSAL: `Failed to ${BASE_CONTEXTS.CREATE} hREA proposal`,
+  GET_PROPOSAL: `Failed to ${BASE_CONTEXTS.READ} hREA proposal`,
+  UPDATE_PROPOSAL: `Failed to ${BASE_CONTEXTS.UPDATE} hREA proposal`,
+  DELETE_PROPOSAL: `Failed to ${BASE_CONTEXTS.DELETE} hREA proposal`,
+  GET_PROPOSALS: `Failed to ${BASE_CONTEXTS.LIST} hREA proposals`,
+  GET_PROPOSALS_BY_AGENT: 'Failed to get hREA proposals by agent',
+  CREATE_INTENT: `Failed to ${BASE_CONTEXTS.CREATE} hREA intent`,
+  GET_INTENT: `Failed to ${BASE_CONTEXTS.READ} hREA intent`,
+  UPDATE_INTENT: `Failed to ${BASE_CONTEXTS.UPDATE} hREA intent`,
+  DELETE_INTENT: `Failed to ${BASE_CONTEXTS.DELETE} hREA intent`,
+  GET_INTENTS: `Failed to ${BASE_CONTEXTS.LIST} hREA intents`,
+  GET_INTENTS_BY_PROPOSAL: 'Failed to get hREA intents by proposal',
+  PROPOSE_INTENT: 'Failed to link intent to proposal',
   MAP_TO_HREA: 'Failed to map to hREA format',
   MAP_FROM_HREA: 'Failed to map from hREA format',
   SYNC_WITH_HREA: 'Failed to sync with hREA'
+} as const;
+
+// Exchange domain contexts
+export const EXCHANGE_CONTEXTS = {
+  // Exchange Proposal contexts
+  CREATE_EXCHANGE_PROPOSAL: `Failed to ${BASE_CONTEXTS.CREATE} exchange proposal`,
+  GET_EXCHANGE_PROPOSAL: `Failed to ${BASE_CONTEXTS.READ} exchange proposal`,
+  UPDATE_PROPOSAL_STATUS: `Failed to ${BASE_CONTEXTS.UPDATE} proposal status`,
+  GET_PROPOSALS_FOR_ENTITY: 'Failed to get proposals for entity',
+  GET_PROPOSALS_BY_STATUS: 'Failed to get proposals by status',
+  GET_ALL_PROPOSALS: `Failed to ${BASE_CONTEXTS.LIST} proposals`,
+  DELETE_EXCHANGE_PROPOSAL: `Failed to ${BASE_CONTEXTS.DELETE} exchange proposal`,
+
+  // Agreement contexts
+  CREATE_AGREEMENT: `Failed to ${BASE_CONTEXTS.CREATE} agreement`,
+  GET_AGREEMENT: `Failed to ${BASE_CONTEXTS.READ} agreement`,
+  UPDATE_AGREEMENT_STATUS: `Failed to ${BASE_CONTEXTS.UPDATE} agreement status`,
+  VALIDATE_COMPLETION: 'Failed to validate completion',
+  GET_AGREEMENTS_BY_STATUS: 'Failed to get agreements by status',
+  GET_ALL_AGREEMENTS: `Failed to ${BASE_CONTEXTS.LIST} agreements`,
+  GET_AGREEMENTS_FOR_AGENT: 'Failed to get agreements for agent',
+
+  // Exchange Event contexts
+  CREATE_EXCHANGE_EVENT: `Failed to ${BASE_CONTEXTS.CREATE} exchange event`,
+  GET_EVENTS_FOR_AGREEMENT: 'Failed to get events for agreement',
+  GET_ALL_EXCHANGE_EVENTS: `Failed to ${BASE_CONTEXTS.LIST} exchange events`,
+
+  // Exchange Review contexts
+  CREATE_MUTUAL_VALIDATION: `Failed to ${BASE_CONTEXTS.CREATE} mutual validation`,
+  CREATE_PUBLIC_REVIEW: `Failed to ${BASE_CONTEXTS.CREATE} public review`,
+  GET_REVIEWS_FOR_AGREEMENT: 'Failed to get reviews for agreement',
+  GET_ALL_EXCHANGE_REVIEWS: `Failed to ${BASE_CONTEXTS.LIST} exchange reviews`,
+
+  // Exchange Cancellation contexts
+  CREATE_MUTUAL_CANCELLATION: `Failed to ${BASE_CONTEXTS.CREATE} mutual cancellation`,
+  CREATE_UNILATERAL_CANCELLATION: `Failed to ${BASE_CONTEXTS.CREATE} unilateral cancellation`,
+  RESPOND_TO_CANCELLATION: 'Failed to respond to cancellation',
+  ADMIN_REVIEW_CANCELLATION: 'Failed to admin review cancellation',
+  GET_CANCELLATIONS_FOR_AGREEMENT: 'Failed to get cancellations for agreement',
+  GET_ALL_EXCHANGE_CANCELLATIONS: `Failed to ${BASE_CONTEXTS.LIST} exchange cancellations`,
+
+  // General exchange contexts
+  DECODE_EXCHANGE_DATA: `Failed to ${BASE_CONTEXTS.DECODE} exchange data`,
+  VALIDATE_EXCHANGE_DATA: `Failed to ${BASE_CONTEXTS.VALIDATE} exchange data`,
+  EMIT_EXCHANGE_EVENT: `Failed to ${BASE_CONTEXTS.EMIT} exchange event`
 } as const;
 
 // Export all contexts for convenience
@@ -217,7 +275,8 @@ export const ERROR_CONTEXTS = {
   ADMINISTRATION: ADMINISTRATION_CONTEXTS,
   MEDIUM_OF_EXCHANGE: MEDIUM_OF_EXCHANGE_CONTEXTS,
   HOLOCHAIN_CLIENT: HOLOCHAIN_CLIENT_CONTEXTS,
-  HREA: HREA_CONTEXTS
+  HREA: HREA_CONTEXTS,
+  EXCHANGE: EXCHANGE_CONTEXTS
 } as const;
 
 // Helper function to create context strings dynamically
@@ -237,3 +296,4 @@ export type AdministrationContext = keyof typeof ADMINISTRATION_CONTEXTS;
 export type MediumOfExchangeContext = keyof typeof MEDIUM_OF_EXCHANGE_CONTEXTS;
 export type HolochainClientContext = keyof typeof HOLOCHAIN_CLIENT_CONTEXTS;
 export type HreaContext = keyof typeof HREA_CONTEXTS;
+export type ExchangeContext = keyof typeof EXCHANGE_CONTEXTS;

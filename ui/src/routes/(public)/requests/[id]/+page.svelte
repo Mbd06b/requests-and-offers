@@ -1,60 +1,65 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import {
-    getToastStore,
-    getModalStore,
-    type ModalSettings,
-    type ModalComponent,
-    Avatar
-  } from '@skeletonlabs/skeleton';
+  import { getToastStore } from '@skeletonlabs/skeleton';
   import { decodeHashFromBase64, encodeHashToBase64, type ActionHash } from '@holochain/client';
-  import requestsStore from '@/lib/stores/requests.store.svelte';
+  import { formatDate, getUserPictureUrl, getOrganizationLogoUrl } from '$lib/utils';
   import usersStore from '$lib/stores/users.store.svelte';
   import organizationsStore from '$lib/stores/organizations.store.svelte';
-  import { formatDate, getUserPictureUrl, getOrganizationLogoUrl } from '$lib/utils';
-  import type { UIRequest, UIOrganization, UIUser, ConfirmModalMeta } from '$lib/types/ui';
-  import {
-    ContactPreferenceHelpers,
-    TimePreferenceHelpers,
-    InteractionType
-  } from '$lib/types/holochain';
-  import ConfirmModal from '$lib/components/shared/dialogs/ConfirmModal.svelte';
+  import administrationStore from '$lib/stores/administration.store.svelte';
+  import requestsStore from '$lib/stores/requests.store.svelte';
   import ServiceTypeTag from '$lib/components/service-types/ServiceTypeTag.svelte';
   import MediumOfExchangeTag from '$lib/components/mediums-of-exchange/MediumOfExchangeTag.svelte';
+  import { getModalStore } from '@skeletonlabs/skeleton';
+  import type { ModalComponent } from '@skeletonlabs/skeleton';
+  import DirectResponseModal from '$lib/components/exchanges/DirectResponseModal.svelte';
+  import { isUserApproved } from '$lib/utils';
+  import type { UIRequest, UIUser, UIOrganization } from '$lib/types/ui';
+  import { ContactPreferenceHelpers, TimePreferenceHelpers } from '$lib/types/holochain';
   import { runEffect } from '$lib/utils/effect';
-  import { Effect as E, pipe } from 'effect';
+  import { useConnectionGuard } from '$lib/composables/connection/useConnectionGuard';
+  import { useAdminStatusGuard } from '$lib/composables/connection/useAdminStatusGuard.svelte';
 
-  // State
-  let isLoading = $state(true);
-  let error: string | null = $state(null);
-  let request: UIRequest | null = $state(null);
-  let creator: UIUser | null = $state(null);
-  let organization: UIOrganization | null = $state(null);
-  let serviceTypeHashes: ActionHash[] = $state([]);
-
-  // Toast and modal stores for notifications
   const toastStore = getToastStore();
   const modalStore = getModalStore();
 
-  // Register the ConfirmModal component
-  const confirmModalComponent: ModalComponent = { ref: ConfirmModal };
+  // Register the DirectResponseModal component
+  const directResponseModalComponent: ModalComponent = { ref: DirectResponseModal };
 
-  // Derived values
-  const { currentUser } = $derived(usersStore);
+  // Get request ID from route params
   const requestId = $derived(page.params.id);
-  const creatorPictureUrl = $derived.by(() => (creator ? getUserPictureUrl(creator) : null));
-  const organizationLogoUrl = $derived.by(() =>
-    organization ? getOrganizationLogoUrl(organization) : null
-  );
+  const requestHash = $derived(() => {
+    try {
+      return requestId ? decodeHashFromBase64(requestId) : null;
+    } catch {
+      return null;
+    }
+  });
 
-  // Check if user can edit/delete the request
+  // State
+  let request: UIRequest | null = $state(null);
+  let creator: UIUser | null = $state(null);
+  let organization: UIOrganization | null = $state(null);
+  let isLoading = $state(true);
+  let error: string | null = $state(null);
+
+  // Get current user and admin status (with guard for reliable detection)
+  const { currentUser } = $derived(usersStore);
+  const adminStatusGuard = useAdminStatusGuard();
+  const agentIsAdministrator = $derived(adminStatusGuard.agentIsAdministrator);
+
+  // Permission checks
   const canEdit = $derived.by(() => {
-    if (!currentUser || !request) return false;
+    if (!request || !currentUser?.original_action_hash) return false;
 
     // User can edit if they created the request
-    if (request.creator && currentUser.original_action_hash) {
+    if (request.creator) {
       return request.creator.toString() === currentUser.original_action_hash.toString();
+    }
+
+    // Admin can edit any request
+    if (agentIsAdministrator) {
+      return true;
     }
 
     // User can edit if they are an organization coordinator
@@ -67,8 +72,72 @@
     return false;
   });
 
+  const canDelete = $derived.by(() => {
+    if (!request || !currentUser?.original_action_hash) return false;
+
+    // User can delete if they created the request
+    if (request.creator) {
+      return request.creator.toString() === currentUser.original_action_hash.toString();
+    }
+
+    // Admin can delete any request
+    if (agentIsAdministrator) {
+      return true;
+    }
+
+    // User can delete if they are an organization coordinator
+    if (request.organization && organization?.coordinators) {
+      return organization.coordinators.some(
+        (coord) => coord.toString() === currentUser.original_action_hash?.toString()
+      );
+    }
+
+    return false;
+  });
+
+  // Check if user can respond to this request
+  const canRespond = $derived.by(() => {
+    if (!currentUser || !isUserApproved(currentUser) || !request) return false;
+
+    // Users cannot respond to their own requests
+    if (request.creator?.toString() === currentUser.original_action_hash?.toString()) {
+      return false;
+    }
+
+    // Check if user is part of the organization (if it's an org request)
+    if (request.organization && currentUser.organizations) {
+      const isOrgMember = currentUser.organizations.some(
+        (org) => org.toString() === request!.organization!.toString()
+      );
+      if (isOrgMember) return false;
+    }
+
+    return true;
+  });
+
+  // Modal trigger function
+  function handleOpenResponseModal() {
+    if (!request?.original_action_hash || !canRespond) return;
+
+    modalStore.trigger({
+      type: 'component',
+      component: directResponseModalComponent,
+      meta: {
+        entity: request,
+        entityType: 'request',
+        entityHash: request.original_action_hash
+      }
+    });
+  }
+
+  // Image URLs
+  const creatorPictureUrl = $derived.by(() => (creator ? getUserPictureUrl(creator) : null));
+  const organizationLogoUrl = $derived.by(() =>
+    organization ? getOrganizationLogoUrl(organization) : null
+  );
+
   // Format dates
-  const createdAt = $derived.by(() => {
+  const createdAt = $derived(() => {
     if (!request?.created_at) return 'Unknown';
     try {
       return formatDate(new Date(Number(request.created_at)));
@@ -78,7 +147,7 @@
     }
   });
 
-  const updatedAt = $derived.by(() => {
+  const updatedAt = $derived(() => {
     if (!request?.updated_at) return 'N/A';
     try {
       return formatDate(new Date(Number(request.updated_at)));
@@ -88,41 +157,20 @@
     }
   });
 
-  // Handle edit action
+  // Actions
   function handleEdit() {
-    goto(`/requests/${requestId}/edit`);
+    if (request?.original_action_hash) {
+      const id = encodeHashToBase64(request.original_action_hash);
+      goto(`/requests/${id}/edit`);
+    }
   }
 
-  // Handle delete action
   async function handleDelete() {
     if (!request?.original_action_hash) return;
 
-    // Create modal settings
-    const modalSettings: ModalSettings = {
-      type: 'component',
-      component: confirmModalComponent,
-      meta: {
-        message: 'Are you sure you want to delete this request?<br/>This action cannot be undone.',
-        confirmLabel: 'Delete',
-        cancelLabel: 'Cancel'
-      } as ConfirmModalMeta,
-      response: (confirmed: boolean) => {
-        if (confirmed) {
-          deleteRequest();
-        }
-      }
-    };
-
-    // Open the modal
-    modalStore.trigger(modalSettings);
-  }
-
-  // Function to actually delete the request
-  async function deleteRequest() {
-    if (!request?.original_action_hash) return;
+    if (!confirm('Are you sure you want to delete this request?')) return;
 
     try {
-      // Implement delete functionality
       await runEffect(requestsStore.deleteRequest(request.original_action_hash));
 
       toastStore.trigger({
@@ -140,6 +188,10 @@
     }
   }
 
+  function handleRefresh() {
+    window.location.reload();
+  }
+
   // Clean up blob URLs when component is destroyed
   $effect(() => {
     return () => {
@@ -152,150 +204,180 @@
     };
   });
 
-  // Load request data on component mount
+  // Load request data
   $effect(() => {
-    if (!requestId) {
-      error = 'Invalid request ID';
-      isLoading = false;
-      return;
-    }
-
-    // Create a function to load the request data using proper Effect patterns
-    const loadRequestData = async () => {
-      isLoading = true;
-      error = null;
-
+    async function loadRequestData() {
       try {
-        // Decode the request hash from the URL
-        const requestHash = decodeHashFromBase64(requestId);
+        isLoading = true;
+        error = null;
 
-        // Use Effect TS pattern to fetch the request
-        await runEffect(
-          pipe(
-            requestsStore.getLatestRequest(requestHash),
-            E.map((fetchedRequest) => {
-              if (!fetchedRequest) {
-                error = 'Request not found';
-                return;
-              }
+        if (!requestHash()) {
+          error = 'Invalid request ID';
+          return;
+        }
 
-              request = fetchedRequest;
-              return fetchedRequest;
-            }),
-            E.flatMap((fetchedRequest) => {
-              if (!fetchedRequest) return E.succeed(null);
+        // Show connecting message during connection and data load
+        error = 'Connecting to network...';
 
-              if (fetchedRequest.creator) {
-                runEffect(usersStore.getUserByActionHash(fetchedRequest.creator))
-                  .then((user) => (creator = user))
-                  .catch((err) => console.error(`Failed to load creator: ${err}`));
-              }
+        // Ensure connection using Effect patterns with retry and timeout
+        await runEffect(useConnectionGuard());
 
-              if (fetchedRequest.organization) {
-                runEffect(
-                  organizationsStore.getOrganizationByActionHash(fetchedRequest.organization)
-                )
-                  .then((org) => (organization = org))
-                  .catch((err) => console.error(`Failed to load organization: ${err}`));
-              }
+        // Load request data
+        request = await runEffect(requestsStore.getRequest(requestHash()!));
 
-              if (fetchedRequest.service_type_hashes) {
-                serviceTypeHashes = fetchedRequest.service_type_hashes;
-              }
+        // Clear the connecting message on success
+        error = null;
 
-              return E.succeed(null);
-            })
-          )
-        );
+        if (!request) {
+          error = 'Request not found';
+          return;
+        }
+
+        // Load creator data
+        if (request.creator) {
+          try {
+            creator = await runEffect(usersStore.getUserByActionHash(request.creator));
+          } catch (err) {
+            console.error('Failed to load creator:', err);
+            creator = null;
+          }
+        }
+
+        // Load organization data
+        if (request.organization) {
+          try {
+            organization = await runEffect(
+              organizationsStore.getOrganizationByActionHash(request.organization)
+            );
+          } catch (err) {
+            console.error('Failed to load organization:', err);
+            organization = null;
+          }
+        }
       } catch (err) {
-        console.error('Failed to load request:', err);
-        error = err instanceof Error ? err.message : 'Failed to load request';
+        console.error('Failed to load request data:', err);
+
+        // Handle different types of errors with specific user-friendly messages
+        if (err instanceof Error) {
+          if (err.message.includes('Connection') || err.message.includes('Client not connected')) {
+            error = 'Failed to connect to network. Please refresh the page.';
+          } else if (err.message.includes('timeout') || err.message.includes('Timeout')) {
+            error = 'Request timed out. Please check your connection and try again.';
+          } else if (err.message.includes('not found') || err.message.includes('Not found')) {
+            error = 'Request not found or may have been deleted.';
+          } else if (err.message.includes('Invalid request ID')) {
+            error = 'Invalid request ID. Please check the URL.';
+          } else {
+            // Show the actual error message but clean it up
+            const cleanMessage = err.message.replace(
+              /^(RequestError: )?Failed to get request: /,
+              ''
+            );
+            error = `Unable to load request: ${cleanMessage}`;
+          }
+        } else {
+          error = 'An unexpected error occurred. Please try again.';
+        }
       } finally {
         isLoading = false;
       }
-    };
+    }
 
-    // Use setTimeout to prevent UI freezing during initial render
-    setTimeout(() => {
-      loadRequestData();
-    }, 0);
+    loadRequestData();
   });
 </script>
 
-<section class="container mx-auto p-4">
-  <div class="mb-6 flex items-center justify-between">
-    <h1 class="h1">Request Details</h1>
-    <button class="variant-soft btn" onclick={() => goto('/requests')}>Back to Requests</button>
+<svelte:head>
+  <title>
+    {request ? `${request.title} Request` : 'Request'} - Requests & Offers
+  </title>
+  <meta
+    name="description"
+    content={request
+      ? `Request details for ${request.title} - ${request.description}`
+      : 'Request details'}
+  />
+</svelte:head>
+
+<section class="container mx-auto space-y-6 p-4">
+  <!-- Navigation -->
+  <div class="flex items-center justify-between">
+    <button class="variant-soft btn space-x-2" onclick={() => goto('/requests')}>
+      <span>🡰</span>
+      <span>Back to Requests</span>
+    </button>
+
+    {#if request && (canEdit || canDelete)}
+      <div class="flex gap-2">
+        {#if canEdit || agentIsAdministrator}
+          <button class="variant-filled-secondary btn" onclick={handleEdit}> Edit </button>
+        {/if}
+
+        {#if canDelete || agentIsAdministrator}
+          <button class="variant-filled-error btn" onclick={handleDelete}> Delete </button>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   {#if error}
-    <div class="alert variant-filled-error mb-4">
+    <div class="alert variant-filled-error">
       <div class="alert-message">
         <h3 class="h3">Error</h3>
         <p>{error}</p>
       </div>
       <div class="alert-actions">
-        <button class="btn btn-sm" onclick={() => location.reload()}>Try Again</button>
-        <button class="btn btn-sm" onclick={() => goto('/requests')}>Back to Requests</button>
+        <button class="variant-filled-primary btn" onclick={handleRefresh}> Retry </button>
       </div>
     </div>
   {:else if isLoading}
     <div class="flex h-64 items-center justify-center">
       <span class="loading loading-spinner text-primary"></span>
-      <p class="ml-4">Loading request details...</p>
+      <p class="ml-4">Loading request...</p>
     </div>
   {:else if request}
-    <div class="bg-surface-100-800-token/90 card variant-soft p-6 backdrop-blur-lg">
-      <!-- Header with title and status -->
-      <header class="mb-4 flex items-center gap-4">
-        <div class="flex-grow">
-          <h1 class="h2 font-bold">{request.title}</h1>
-          <p class="text-surface-600-300-token mt-2">{request.description}</p>
-        </div>
-      </header>
-
-      <!-- Main content -->
-      <div class="space-y-6">
-        <!-- Description -->
-        <div>
-          <h3 class="h4 mb-2 font-semibold">Description</h3>
-          <p class="whitespace-pre-line">{request.description}</p>
-        </div>
+    <!-- Main Content -->
+    <div class="space-y-6">
+      <!-- Header Card -->
+      <div class="card p-6">
+        <header class="mb-6">
+          <h1 class="h1 text-primary-500 mb-4">{request.title}</h1>
+          <p class="text-surface-600 dark:text-surface-400 whitespace-pre-line text-lg">
+            {request.description || 'No description provided.'}
+          </p>
+        </header>
 
         <!-- Service Types -->
-        <div>
-          <h3 class="h4 mb-2 font-semibold">Service Types</h3>
-          {#if serviceTypeHashes && serviceTypeHashes.length > 0}
-            <ul class="flex flex-wrap gap-2">
-              {#each serviceTypeHashes as serviceTypeHash}
-                <li>
-                  <ServiceTypeTag serviceTypeActionHash={serviceTypeHash} />
-                </li>
+        <section class="mb-6">
+          <h3 class="h4 mb-3 font-semibold">Service Types</h3>
+          {#if request.service_type_hashes && request.service_type_hashes.length > 0}
+            <div class="flex flex-wrap gap-2">
+              {#each request.service_type_hashes as serviceTypeHash}
+                <ServiceTypeTag serviceTypeActionHash={serviceTypeHash} />
               {/each}
-            </ul>
+            </div>
           {:else}
-            <p class="text-surface-500">No service types found.</p>
+            <p class="text-surface-500">No service types specified.</p>
           {/if}
-        </div>
+        </section>
 
         <!-- Medium of Exchange -->
-        <div>
-          <h3 class="h4 mb-2 font-semibold">Mediums of Exchange</h3>
+        <section class="mb-6">
+          <h3 class="h4 mb-3 font-semibold">Medium of Exchange</h3>
           {#if request.medium_of_exchange_hashes && request.medium_of_exchange_hashes.length > 0}
-            <ul class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2">
               {#each request.medium_of_exchange_hashes as mediumHash}
-                <li>
-                  <MediumOfExchangeTag mediumOfExchangeActionHash={mediumHash} />
-                </li>
+                <MediumOfExchangeTag mediumOfExchangeActionHash={mediumHash} />
               {/each}
-            </ul>
+            </div>
           {:else}
             <p class="text-surface-500">No medium of exchange specified.</p>
           {/if}
-        </div>
+        </section>
 
-        <!-- Date Range and Time -->
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <!-- Request Details Grid -->
+        <section class="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <!-- Date Range -->
           {#if request.date_range}
             <div>
               <h3 class="h4 mb-2 font-semibold">Date Range</h3>
@@ -315,139 +397,293 @@
             </div>
           {/if}
 
+          <!-- Time Estimate -->
           {#if request.time_estimate_hours !== undefined}
             <div>
               <h3 class="h4 mb-2 font-semibold">Time Estimate</h3>
               <p>{request.time_estimate_hours} hours</p>
             </div>
           {/if}
-        </div>
 
-        <!-- Preferences -->
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {#if request.time_preference}
+          <!-- Contact Information -->
+          <div>
+            <h3 class="h4 mb-2 font-semibold">Contact Information</h3>
+            <p><strong>Time Zone:</strong> {request.time_zone || 'Not specified'}</p>
+            <p>
+              <strong>Time Preference:</strong>
+              {TimePreferenceHelpers.getDisplayValue(request.time_preference)}
+            </p>
+          </div>
+
+          <!-- Interaction Type -->
+          {#if request.interaction_type}
             <div>
-              <h3 class="h4 mb-2 font-semibold">Time Preference</h3>
-              <p>{TimePreferenceHelpers.getDisplayValue(request.time_preference)}</p>
+              <h3 class="h4 mb-2 font-semibold">Interaction Type</h3>
+              <p>{request.interaction_type === 'Virtual' ? 'Virtual' : 'In Person'}</p>
             </div>
           {/if}
-
-          {#if request.contact_preference}
-            <div>
-              <h3 class="h4 mb-2 font-semibold">Contact Preference</h3>
-              <p>{ContactPreferenceHelpers.getDisplayValue(request.contact_preference)}</p>
-            </div>
-          {/if}
-        </div>
-
-        <div>
-          <h3 class="h4 mb-2 font-semibold">Interaction Type</h3>
-          <p>
-            {#if request.interaction_type === InteractionType.InPerson}
-              In Person
-            {:else if request.interaction_type === InteractionType.Virtual}
-              Virtual
-            {:else}
-              {request.interaction_type}
-            {/if}
-          </p>
-        </div>
+        </section>
 
         <!-- Links -->
         {#if request.links && request.links.length > 0}
-          <div>
-            <h3 class="h4 mb-2 font-semibold">Links</h3>
-            <ul class="list-inside list-disc">
+          <section class="mt-6">
+            <h3 class="h4 mb-3 font-semibold">Related Links</h3>
+            <ul class="list-inside list-disc space-y-1">
               {#each request.links as link}
                 <li>
                   <a
-                    href={link.startsWith('http') ? link : `https://${link}`}
+                    href={link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="text-primary-500 hover:underline"
+                    class="text-primary-500 dark:text-primary-400 hover:underline"
                   >
                     {link}
                   </a>
                 </li>
               {/each}
             </ul>
-          </div>
+          </section>
         {/if}
-
-        <!-- Organization Information -->
-        {#if organization}
-          <div>
-            <h3 class="h4 mb-2 font-semibold">Organization</h3>
-            <a
-              href={`/organizations/${encodeHashToBase64(organization.original_action_hash!)}`}
-              class="flex items-center gap-3 hover:text-primary-500"
-            >
-              <Avatar
-                src={organizationLogoUrl || '/default_avatar.webp'}
-                initials={organization.name?.charAt(0) || 'O'}
-                width="w-12"
-                rounded="rounded-full"
-              />
-              <div>
-                <p class="font-semibold">{organization.name}</p>
-                {#if organization.description}
-                  <p class="text-surface-600-300-token text-sm">
-                    {organization.description.substring(0, 50)}...
-                  </p>
-                {/if}
-              </div>
-            </a>
-          </div>
-        {/if}
-
-        <!-- Creator Information -->
-        {#if creator}
-          <div>
-            <h3 class="h4 mb-2 font-semibold">Creator</h3>
-            <a
-              href={`/users/${encodeHashToBase64(request.creator!)}`}
-              class="flex items-center gap-3 hover:text-primary-500"
-            >
-              <Avatar
-                src={creatorPictureUrl || '/default_avatar.webp'}
-                initials={creator.name?.charAt(0) || 'U'}
-                width="w-12"
-                rounded="rounded-full"
-              />
-              <div>
-                <p class="font-semibold">{creator.name}</p>
-                {#if creator.nickname}
-                  <p class="text-surface-600-300-token text-sm">@{creator.nickname}</p>
-                {/if}
-              </div>
-            </a>
-          </div>
-        {/if}
-
-        <!-- Metadata -->
-        <div
-          class="border-surface-300-600-token grid grid-cols-1 gap-4 border-t pt-4 md:grid-cols-3"
-        >
-          <div>
-            <h3 class="h4 mb-2 font-semibold">Created</h3>
-            <p>{createdAt}</p>
-          </div>
-          <div>
-            <h3 class="h4 mb-2 font-semibold">Last Updated</h3>
-            <p>{updatedAt}</p>
-          </div>
-        </div>
       </div>
 
-      <!-- Action buttons -->
-      {#if canEdit}
-        <div class="mt-6 flex justify-end gap-2">
-          <button class="variant-filled-secondary btn" onclick={handleEdit}>Edit</button>
-          <button class="variant-filled-error btn" onclick={handleDelete}>Delete</button>
+      <!-- Creator/Organization Info -->
+      <div class="card p-6">
+        {#if request.organization}
+          <!-- Organization info -->
+          <div>
+            <h3 class="h4 mb-4 font-semibold">Organization</h3>
+            <div class="flex items-center gap-2">
+              {#if organization}
+                <div class="flex items-center gap-3">
+                  <div class="avatar h-12 w-12 overflow-hidden rounded-full">
+                    {#if organizationLogoUrl && organizationLogoUrl !== '/default_avatar.webp'}
+                      <img
+                        src={organizationLogoUrl}
+                        alt={organization.name}
+                        class="h-full w-full object-cover"
+                      />
+                    {:else}
+                      <div
+                        class="bg-secondary-500 flex h-full w-full items-center justify-center text-white"
+                      >
+                        <span class="text-lg font-semibold">
+                          {organization.name ? organization.name.charAt(0).toUpperCase() : 'O'}
+                        </span>
+                      </div>
+                    {/if}
+                  </div>
+                  <div>
+                    <p class="font-semibold">{organization.name}</p>
+                    {#if organization.description}
+                      <p class="text-surface-600-300-token text-sm">
+                        {organization.description.substring(0, 50)}...
+                      </p>
+                    {/if}
+                  </div>
+                </div>
+              {:else}
+                <a
+                  href={`/organizations/${encodeHashToBase64(request.organization)}`}
+                  class="text-primary-500 dark:text-primary-400 hover:underline"
+                >
+                  View Organization
+                </a>
+              {/if}
+            </div>
+
+            <!-- Organization Coordinators -->
+            {#if organization?.coordinators && organization.coordinators.length > 0}
+              <div class="mt-4">
+                <p class="mb-2 text-sm font-medium">Exchange Coordinators:</p>
+                <div class="flex flex-wrap gap-2">
+                  {#each organization.coordinators as coordinator}
+                    <a
+                      href={`/users/${encodeHashToBase64(coordinator)}`}
+                      class="variant-soft-secondary chip hover:variant-soft-primary"
+                    >
+                      View Coordinator
+                    </a>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <!-- Creator info (only show if not an organization request) -->
+          <div>
+            <h3 class="h4 mb-4 font-semibold">Creator</h3>
+            <div class="flex items-center gap-2">
+              {#if creator}
+                <a href={`/users/${encodeHashToBase64(creator.original_action_hash!)}`}>
+                  <div class="flex items-center gap-3">
+                    <div class="avatar h-12 w-12 overflow-hidden rounded-full">
+                      {#if creatorPictureUrl && creatorPictureUrl !== '/default_avatar.webp'}
+                        <img
+                          src={creatorPictureUrl}
+                          alt={creator.name}
+                          class="h-full w-full object-cover"
+                        />
+                      {:else}
+                        <div
+                          class="bg-primary-500 dark:bg-primary-400 flex h-full w-full items-center justify-center text-white"
+                        >
+                          <span class="text-lg font-semibold">
+                            {creator.name ? creator.name.charAt(0).toUpperCase() : 'U'}
+                          </span>
+                        </div>
+                      {/if}
+                    </div>
+                    <div>
+                      <p class="font-semibold">{creator.name}</p>
+                      {#if creator.nickname}
+                        <p class="text-surface-600-300-token text-sm">@{creator.nickname}</p>
+                      {/if}
+                    </div>
+                  </div>
+                </a>
+              {:else if request.creator}
+                <a
+                  href={`/users/${encodeHashToBase64(request.creator)}`}
+                  class="text-primary-500 dark:text-primary-400 hover:underline"
+                >
+                  View Creator Profile
+                </a>
+              {:else}
+                <span class="text-surface-500 italic">Unknown creator</span>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Metadata -->
+      <div class="card p-6">
+        <h3 class="h4 mb-4 font-semibold">Metadata</h3>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <h4 class="mb-1 font-medium">Created</h4>
+            <p class="text-surface-600 dark:text-surface-400">{createdAt()}</p>
+          </div>
+          <div>
+            <h4 class="mb-1 font-medium">Last Updated</h4>
+            <p class="text-surface-600 dark:text-surface-400">{updatedAt()}</p>
+          </div>
+        </div>
+
+        <!-- Admin status -->
+        {#if agentIsAdministrator}
+          <div class="bg-primary-100 rounded-container-token dark:bg-primary-900 mt-4 p-3">
+            <p class="text-center text-sm">You are viewing this as an administrator</p>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Direct Response Button -->
+      {#if canRespond}
+        <div
+          class="card border-primary-500/20 from-primary-50 to-secondary-50 dark:from-primary-950/30 dark:to-secondary-950/30 border-2 bg-gradient-to-br p-6"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div>
+                <h3 class="h4 text-primary-700 dark:text-primary-300 font-semibold">
+                  Interested in this request?
+                </h3>
+                <p class="text-surface-600 dark:text-surface-400 text-sm">
+                  Let them know how you can help!
+                </p>
+              </div>
+            </div>
+            <button class="variant-filled-primary btn" onclick={handleOpenResponseModal}>
+              <span>Respond</span>
+            </button>
+          </div>
+        </div>
+      {:else if currentUser && !isUserApproved(currentUser)}
+        <!-- User needs approval -->
+        <div class="card variant-soft-warning p-4">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined">info</span>
+            <p class="text-sm">
+              Your account is pending approval before you can respond to requests.
+            </p>
+          </div>
         </div>
       {/if}
+
+      <!-- View Proposals (for request owner) -->
+      {#if request?.creator?.toString() === currentUser?.original_action_hash?.toString()}
+        <div class="card p-6">
+          <div class="mb-4 flex items-center justify-between">
+            <div>
+              <h3 class="h4 font-semibold">Proposals for Your Request</h3>
+              <p class="text-surface-600 dark:text-surface-400 text-sm">
+                People who want to help with your request
+              </p>
+            </div>
+            <a href="/exchanges" class="variant-filled-secondary btn">
+              <span>View My Proposals</span>
+            </a>
+          </div>
+
+          <div class="text-surface-500 py-4 text-center">
+            <span class="material-symbols-outlined mb-2 text-2xl">arrow_forward</span>
+            <p class="text-sm">Go to your exchanges page to view and manage proposals</p>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Technical Details (for advanced users) -->
+      <details class="card p-6">
+        <summary class="h4 hover:text-primary-500 cursor-pointer transition-colors">
+          Technical Details
+        </summary>
+        <div class="mt-4 space-y-3 text-sm">
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <strong class="text-surface-800 dark:text-surface-200">Original Action Hash:</strong>
+              <code
+                class="code bg-surface-100 dark:bg-surface-800 mt-1 block break-all rounded p-2 text-xs"
+              >
+                {request.original_action_hash
+                  ? encodeHashToBase64(request.original_action_hash)
+                  : 'N/A'}
+              </code>
+            </div>
+            <div>
+              <strong class="text-surface-800 dark:text-surface-200">Previous Action Hash:</strong>
+              <code
+                class="code bg-surface-100 dark:bg-surface-800 mt-1 block break-all rounded p-2 text-xs"
+              >
+                {request.previous_action_hash
+                  ? encodeHashToBase64(request.previous_action_hash)
+                  : 'N/A'}
+              </code>
+            </div>
+          </div>
+
+          {#if request.creator}
+            <div>
+              <strong class="text-surface-800 dark:text-surface-200">Creator Hash:</strong>
+              <code
+                class="code bg-surface-100 dark:bg-surface-800 mt-1 block break-all rounded p-2 text-xs"
+              >
+                {request.creator.toString()}
+              </code>
+            </div>
+          {/if}
+        </div>
+      </details>
     </div>
   {:else}
-    <div class="text-center text-xl text-surface-500">Request not found.</div>
+    <div class="card p-8 text-center">
+      <h2 class="h2 mb-4">Request Not Found</h2>
+      <p class="text-surface-600 dark:text-surface-400 mb-4">
+        The requested request could not be found or may have been removed.
+      </p>
+      <button class="variant-filled-primary btn" onclick={() => goto('/requests')}>
+        Browse All Requests
+      </button>
+    </div>
   {/if}
 </section>

@@ -1,13 +1,31 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { HreaServiceTag, HreaServiceLive } from '@/lib/services/hrea.service';
+import { HreaServiceTag, HreaServiceLive } from '$lib/services/hrea.service';
 import { Effect as E, Layer, pipe } from 'effect';
 import { HolochainClientLive } from '$lib/services/holochainClient.service';
 import { storeEventBus } from '$lib/stores/storeEvents';
 import { HreaError } from '$lib/errors';
-import type { Agent, ResourceSpecification } from '$lib/types/hrea';
+
+// Import standardized store helpers
+import {
+  withLoadingState,
+  createErrorHandler,
+  createStandardEventEmitters,
+  type LoadingStateSetter
+} from '$lib/utils/store-helpers';
+import type { Agent, ResourceSpecification, Proposal, Intent } from '$lib/types/hrea';
 import type { ApolloClient } from '@apollo/client/core';
-import type { UIUser, UIOrganization, UIServiceType } from '$lib/types/ui';
+import type { UIUser, UIOrganization, UIServiceType, UIRequest, UIOffer } from '$lib/types/ui';
 import type { UIMediumOfExchange } from '$lib/schemas/mediums-of-exchange.schemas';
+import {
+  createProposalFromRequest as mapRequestToProposal,
+  validateRequestMappingRequirements,
+  createProposalReference as createRequestProposalReference
+} from '$lib/services/mappers/request-proposal.mapper';
+import {
+  createProposalFromOffer as mapOfferToProposal,
+  validateOfferMappingRequirements,
+  createProposalReference as createOfferProposalReference
+} from '$lib/services/mappers/offer-proposal.mapper';
 
 // ============================================================================
 // CONSTANTS
@@ -28,8 +46,32 @@ const ERROR_CONTEXTS = {
   UPDATE_MEDIUM_OF_EXCHANGE_RESOURCE_SPEC:
     'Failed to update medium of exchange resource specification',
   DELETE_MEDIUM_OF_EXCHANGE_RESOURCE_SPEC:
-    'Failed to delete medium of exchange resource specification'
+    'Failed to delete medium of exchange resource specification',
+  CREATE_PROPOSAL_FROM_REQUEST: 'Failed to create proposal from request',
+  CREATE_PROPOSAL_FROM_OFFER: 'Failed to create proposal from offer',
+  GET_ALL_PROPOSALS: 'Failed to get all proposals',
+  GET_ALL_INTENTS: 'Failed to get all intents'
 } as const;
+
+// ============================================================================
+// ERROR HANDLING & EVENT EMISSION
+// ============================================================================
+
+/**
+ * Standardized error handler for hREA operations
+ */
+const handleHreaError = createErrorHandler(
+  HreaError.fromError,
+  'hREA operation failed'
+);
+
+/**
+ * Create standardized event emitters for hREA entities
+ */
+const agentEventEmitters = createStandardEventEmitters<Agent>('hrea-agent');
+const resourceSpecEventEmitters = createStandardEventEmitters<ResourceSpecification>('hrea-resourceSpec');
+const proposalEventEmitters = createStandardEventEmitters<Proposal>('hrea-proposal');
+const intentEventEmitters = createStandardEventEmitters<Intent>('hrea-intent');
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -40,8 +82,12 @@ export type HreaStore = {
   readonly organizationAgentMappings: ReadonlyMap<string, string>; // organizationHash -> agentId
   readonly serviceTypeResourceSpecMappings: ReadonlyMap<string, string>; // serviceTypeHash -> resourceSpecId
   readonly mediumOfExchangeResourceSpecMappings: ReadonlyMap<string, string>; // mediumOfExchangeHash -> resourceSpecId
+  readonly requestProposalMappings: ReadonlyMap<string, string>; // requestHash -> proposalId
+  readonly offerProposalMappings: ReadonlyMap<string, string>; // offerHash -> proposalId
   readonly agents: ReadonlyArray<Agent>;
   readonly resourceSpecifications: ReadonlyArray<ResourceSpecification>;
+  readonly proposals: ReadonlyArray<Proposal>;
+  readonly intents: ReadonlyArray<Intent>;
   readonly loading: boolean;
   readonly error: HreaError | null;
   readonly apolloClient: ApolloClient<any> | null;
@@ -103,6 +149,14 @@ export type HreaStore = {
   readonly findResourceSpecByActionHash: (actionHash: string) => ResourceSpecification | null;
   readonly getServiceTypeResourceSpecs: () => ResourceSpecification[];
   readonly getMediumOfExchangeResourceSpecs: () => ResourceSpecification[];
+  readonly createProposalFromRequest: (request: UIRequest) => E.Effect<Proposal | null, HreaError>;
+  readonly createProposalFromOffer: (offer: UIOffer) => E.Effect<Proposal | null, HreaError>;
+  readonly getAllProposals: () => E.Effect<void, HreaError>;
+  readonly getAllIntents: () => E.Effect<void, HreaError>;
+  readonly findProposalByActionHash: (
+    actionHash: string,
+    entityType: 'request' | 'offer'
+  ) => Proposal | null;
   readonly dispose: () => void;
 };
 
@@ -217,6 +271,25 @@ const findResourceSpecByActionHash = (
 };
 
 /**
+ * Finds an hREA proposal by original action hash reference (request or offer)
+ */
+const findProposalByActionHash = (
+  proposals: Proposal[],
+  requestProposalMappings: Map<string, string>,
+  offerProposalMappings: Map<string, string>,
+  actionHash: string,
+  entityType: 'request' | 'offer'
+): Proposal | null => {
+  // Check the appropriate mapping based on entity type
+  const mappings = entityType === 'request' ? requestProposalMappings : offerProposalMappings;
+  const proposalId = mappings.get(actionHash);
+
+  if (!proposalId) return null;
+
+  return proposals.find((proposal) => proposal.id === proposalId) || null;
+};
+
+/**
  * Creates a helper for ensuring initialization before operations
  */
 const withInitialization = <T, E>(
@@ -252,7 +325,9 @@ const createEventHandlers = (
   ) => E.Effect<ResourceSpecification | null, HreaError>,
   deleteResourceSpecificationForMediumOfExchange: (
     mediumOfExchangeHash: string
-  ) => E.Effect<boolean, HreaError>
+  ) => E.Effect<boolean, HreaError>,
+  createProposalFromRequest: (request: UIRequest) => E.Effect<Proposal | null, HreaError>,
+  createProposalFromOffer: (offer: UIOffer) => E.Effect<Proposal | null, HreaError>
 ) => {
   const handleUserAccepted = (user: UIUser) => {
     pipe(createPersonFromUser(user), E.runPromise).catch((err) =>
@@ -382,6 +457,20 @@ const createEventHandlers = (
     );
   };
 
+  const handleRequestCreated = (request: UIRequest) => {
+    console.log('hREA Store: Request created, auto-creating proposal:', request.title);
+    pipe(createProposalFromRequest(request), E.runPromise).catch((err) =>
+      console.error('hREA Store: Failed to create proposal from request:', err)
+    );
+  };
+
+  const handleOfferCreated = (offer: UIOffer) => {
+    console.log('hREA Store: Offer created, auto-creating proposal:', offer.title);
+    pipe(createProposalFromOffer(offer), E.runPromise).catch((err) =>
+      console.error('hREA Store: Failed to create proposal from offer:', err)
+    );
+  };
+
   return {
     handleUserAccepted,
     handleOrganizationAccepted,
@@ -391,7 +480,9 @@ const createEventHandlers = (
     handleServiceTypeDeleted,
     handleMediumOfExchangeApproved,
     handleMediumOfExchangeRejected,
-    handleMediumOfExchangeDeleted
+    handleMediumOfExchangeDeleted,
+    handleRequestCreated,
+    handleOfferCreated
   };
 };
 
@@ -407,7 +498,9 @@ const createEventSubscriptions = (
   handleServiceTypeDeleted: (serviceTypeHash: string) => void,
   handleMediumOfExchangeApproved: (mediumOfExchange: UIMediumOfExchange) => void,
   handleMediumOfExchangeRejected: (mediumOfExchange: UIMediumOfExchange) => void,
-  handleMediumOfExchangeDeleted: (mediumOfExchangeHash: string) => void
+  handleMediumOfExchangeDeleted: (mediumOfExchangeHash: string) => void,
+  handleRequestCreated: (request: UIRequest) => void,
+  handleOfferCreated: (offer: UIOffer) => void
 ) => {
   const unsubscribeFunctions: Array<() => void> = [];
 
@@ -468,6 +561,17 @@ const createEventSubscriptions = (
     }
   );
 
+  // Subscribe to request and offer creation events to auto-create proposals
+  const unsubscribeRequestCreated = storeEventBus.on('request:created', (payload) => {
+    const { request } = payload;
+    handleRequestCreated(request);
+  });
+
+  const unsubscribeOfferCreated = storeEventBus.on('offer:created', (payload) => {
+    const { offer } = payload;
+    handleOfferCreated(offer);
+  });
+
   unsubscribeFunctions.push(
     unsubscribeUserAccepted,
     unsubscribeOrganizationAccepted,
@@ -477,7 +581,9 @@ const createEventSubscriptions = (
     unsubscribeServiceTypeDeleted,
     unsubscribeMediumOfExchangeApproved,
     unsubscribeMediumOfExchangeRejected,
-    unsubscribeMediumOfExchangeDeleted
+    unsubscribeMediumOfExchangeDeleted,
+    unsubscribeRequestCreated,
+    unsubscribeOfferCreated
   );
 
   return {
@@ -494,6 +600,28 @@ const createEventSubscriptions = (
 // STORE FACTORY FUNCTION
 // ============================================================================
 
+/**
+ * HREA STORE - DEMONSTRATING STANDARDIZED STORE HELPER PATTERNS FOR MAPPING STORE
+ * 
+ * This store demonstrates the use of standardized helper functions for a mapping/synchronization store:
+ * 
+ * 1. createErrorHandler - Domain-specific error handling for hREA operations
+ * 2. createStandardEventEmitters - Type-safe event emission for hREA entities (Agent, ResourceSpec, Proposal, Intent)
+ * 3. withLoadingState - Consistent loading/error state management for async operations
+ * 4. LoadingStateSetter - Standardized interface for loading state management
+ * 
+ * The hREA store serves as a bridge between Holochain entities (Users, Organizations, ServiceTypes, etc.)
+ * and hREA entities (Agents, ResourceSpecifications, Proposals, Intents), maintaining bidirectional mappings
+ * and synchronization between the two systems.
+ * 
+ * This store demonstrates patterns for:
+ * - Entity mapping and synchronization
+ * - Cross-domain event handling
+ * - State consistency across multiple entity types
+ * - GraphQL client integration with Effect-TS patterns
+ * 
+ * @returns An Effect that creates an hREA store with mapping state and synchronization methods
+ */
 export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
   E.gen(function* () {
     const hreaService = yield* HreaServiceTag;
@@ -506,8 +634,12 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       organizationAgentMappings: new Map<string, string>(), // organizationHash -> agentId
       serviceTypeResourceSpecMappings: new Map<string, string>(), // serviceTypeHash -> resourceSpecId
       mediumOfExchangeResourceSpecMappings: new Map<string, string>(), // mediumOfExchangeHash -> resourceSpecId
+      requestProposalMappings: new Map<string, string>(), // requestHash -> proposalId
+      offerProposalMappings: new Map<string, string>(), // offerHash -> proposalId
       agents: [] as Agent[],
       resourceSpecifications: [] as ResourceSpecification[],
+      proposals: [] as Proposal[],
+      intents: [] as Intent[],
       loading: false,
       error: null as HreaError | null,
       apolloClient: null as ApolloClient<any> | null,
@@ -518,14 +650,25 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     const inFlightOperations = new Set<string>();
 
     // ========================================================================
-    // HELPER INITIALIZATION
+    // HELPER INITIALIZATION WITH STANDARDIZED UTILITIES
     // ========================================================================
-    const setLoading = (loading: boolean) => {
-      state.loading = loading;
+
+    // 1. LOADING STATE MANAGEMENT - Using LoadingStateSetter interface
+    const setters: LoadingStateSetter = {
+      setLoading: (value) => {
+        state.loading = value;
+      },
+      setError: (value) => {
+        state.error = value ? HreaError.fromError(new Error(value), 'Store operation') : null;
+      }
     };
 
-    const setError = (error: HreaError | null) => {
-      state.error = error;
+    // 2. EVENT EMITTERS - Using standardized event emitters for hREA entities
+    const eventEmitters = {
+      agent: agentEventEmitters,
+      resourceSpec: resourceSpecEventEmitters,
+      proposal: proposalEventEmitters,
+      intent: intentEventEmitters
     };
 
     const addUserAgentMapping = (userHash: string, agentId: string) => {
@@ -547,25 +690,31 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       state.mediumOfExchangeResourceSpecMappings.set(mediumOfExchangeHash, resourceSpecId);
     };
 
+    const addRequestProposalMapping = (requestHash: string, proposalId: string) => {
+      state.requestProposalMappings.set(requestHash, proposalId);
+    };
+
+    const addOfferProposalMapping = (offerHash: string, proposalId: string) => {
+      state.offerProposalMappings.set(offerHash, proposalId);
+    };
+
     // ========================================================================
     // STORE METHODS
     // ========================================================================
 
-    const initialize = (): E.Effect<void, HreaError> => {
-      setLoading(true);
-
-      return pipe(
-        hreaService.initialize(),
-        E.tap((client) =>
-          E.sync(() => {
-            state.apolloClient = client;
-          })
-        ),
-        E.asVoid,
-        E.ensuring(E.sync(() => setLoading(false))),
-        E.mapError((error) => HreaError.fromError(error, ERROR_CONTEXTS.INITIALIZE))
-      );
-    };
+    const initialize = (): E.Effect<void, HreaError> =>
+      withLoadingState(() =>
+        pipe(
+          hreaService.initialize(),
+          E.tap((client) =>
+            E.sync(() => {
+              state.apolloClient = client;
+            })
+          ),
+          E.asVoid,
+          E.mapError((error) => HreaError.fromError(error, ERROR_CONTEXTS.INITIALIZE))
+        )
+      )(setters);
 
     const createPersonFromUser = (user: UIUser): E.Effect<Agent | null, HreaError> => {
       const userHash = user.original_action_hash?.toString();
@@ -761,27 +910,21 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       );
     };
 
-    const getAllAgents = (): E.Effect<void, HreaError> => {
-      return pipe(
-        E.sync(() => setLoading(true)),
-        E.flatMap(() =>
-          withInitialization(() => hreaService.getAgents(), state.apolloClient, initialize)
-        ),
-        E.tap((fetchedAgents) =>
-          E.sync(() => {
-            state.agents = [...fetchedAgents];
-            setLoading(false);
-          })
-        ),
-        E.tapError((error) =>
-          E.sync(() => {
-            setError(HreaError.fromError(error, ERROR_CONTEXTS.GET_ALL_AGENTS));
-            setLoading(false);
-          })
-        ),
-        E.asVoid
-      );
-    };
+    const getAllAgents = (): E.Effect<void, HreaError> =>
+      withLoadingState(() =>
+        pipe(
+          withInitialization(() => hreaService.getAgents(), state.apolloClient, initialize),
+          E.tap((fetchedAgents) =>
+            E.sync(() => {
+              state.agents = [...fetchedAgents];
+              // Emit events for each agent
+              fetchedAgents.forEach(agent => eventEmitters.agent.emitCreated(agent));
+            })
+          ),
+          E.mapError((error) => HreaError.fromError(error, ERROR_CONTEXTS.GET_ALL_AGENTS)),
+          E.asVoid
+        )
+      )(setters);
 
     // ========================================================================
     // RESOURCE SPECIFICATION METHODS
@@ -1030,28 +1173,69 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       );
     };
 
-    const getAllResourceSpecifications = (): E.Effect<void, HreaError> => {
-      return pipe(
-        E.sync(() => setLoading(true)),
-        E.flatMap(() =>
+    const getAllResourceSpecifications = (): E.Effect<void, HreaError> =>
+      withLoadingState(() =>
+        pipe(
           withInitialization(
             () => hreaService.getResourceSpecifications(),
             state.apolloClient,
             initialize
-          )
+          ),
+          E.tap((fetchedResourceSpecs) =>
+            E.sync(() => {
+              console.log('hREA Store: Loaded resource specifications:', fetchedResourceSpecs.length);
+              state.resourceSpecifications = [...fetchedResourceSpecs];
+              // Emit events for each resource specification
+              fetchedResourceSpecs.forEach(spec => eventEmitters.resourceSpec.emitCreated(spec));
+            })
+          ),
+          E.mapError((error) => HreaError.fromError(error, ERROR_CONTEXTS.GET_ALL_RESOURCE_SPECIFICATIONS)),
+          E.asVoid
+        )
+      )(setters);
+
+    const getAllProposals = (): E.Effect<void, HreaError> => {
+      return pipe(
+        E.sync(() => setters.setLoading(true)),
+        E.flatMap(() =>
+          withInitialization(() => hreaService.getProposals(), state.apolloClient, initialize)
         ),
-        E.tap((fetchedResourceSpecs) =>
+        E.tap((fetchedProposals) =>
           E.sync(() => {
-            console.log('hREA Store: Loaded resource specifications:', fetchedResourceSpecs.length);
-            state.resourceSpecifications = [...fetchedResourceSpecs];
-            setLoading(false);
+            console.log('hREA Store: Loaded proposals:', fetchedProposals.length);
+            state.proposals = [...fetchedProposals];
+            setters.setLoading(false);
           })
         ),
         E.tapError((error) =>
           E.sync(() => {
-            console.error('hREA Store: Failed to load resource specifications:', error);
-            setError(HreaError.fromError(error, ERROR_CONTEXTS.GET_ALL_RESOURCE_SPECIFICATIONS));
-            setLoading(false);
+            console.error('hREA Store: Failed to load proposals:', error);
+            setters.setError(String(HreaError.fromError(error, ERROR_CONTEXTS.GET_ALL_PROPOSALS)));
+            setters.setLoading(false);
+          })
+        ),
+        E.asVoid
+      );
+    };
+
+    const getAllIntents = (): E.Effect<void, HreaError> => {
+      return pipe(
+        E.sync(() => setters.setLoading(true)),
+        E.flatMap(() =>
+          withInitialization(() => hreaService.getIntents(), state.apolloClient, initialize)
+        ),
+        E.tap((fetchedIntents) =>
+          E.sync(() => {
+            console.log('hREA Store: Loaded intents:', fetchedIntents.length);
+            state.intents = [...fetchedIntents];
+            setters.setLoading(false);
+          })
+        ),
+        E.tapError((error) =>
+          E.sync(() => {
+            console.error('hREA Store: Failed to load intents:', error);
+            setters.setError(String(HreaError.fromError(error, ERROR_CONTEXTS.GET_ALL_INTENTS)));
+            setters.setLoading(false);
           })
         ),
         E.asVoid
@@ -1400,6 +1584,252 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     };
 
     // ========================================================================
+    // PROPOSAL CREATION METHODS
+    // ========================================================================
+
+    const createProposalFromRequest = (
+      request: UIRequest
+    ): E.Effect<Proposal | null, HreaError> => {
+      const requestHash = request.original_action_hash?.toString();
+
+      if (!requestHash) {
+        console.warn('hREA Store: Cannot create proposal for request without action hash');
+        return E.succeed(null);
+      }
+
+      // Check if we already have a proposal for this request
+      const existingProposalId = state.requestProposalMappings.get(requestHash);
+      if (existingProposalId) {
+        const existingProposal = state.proposals.find((p) => p.id === existingProposalId);
+        if (existingProposal) {
+          console.log('hREA Store: Proposal already exists for request:', request.title);
+          return E.succeed(existingProposal);
+        }
+      }
+
+      return pipe(
+        E.gen(function* () {
+          // 1. Find the requester agent by action hash reference
+          const creatorHash = request.creator?.toString();
+          const requesterAgent = creatorHash
+            ? findAgentByActionHash(state.agents, creatorHash, 'user')
+            : null;
+
+          if (!requesterAgent) {
+            console.error('hREA Store: Requester agent not found for request:', request.title);
+            return null;
+          }
+
+          // 2. Find service type resource specifications
+          const serviceTypeResourceSpecs: ResourceSpecification[] = [];
+          if (request.service_type_hashes) {
+            for (const serviceTypeHash of request.service_type_hashes) {
+              const resourceSpec = findResourceSpecByActionHash(
+                state.resourceSpecifications,
+                serviceTypeHash.toString()
+              );
+              if (resourceSpec) {
+                serviceTypeResourceSpecs.push(resourceSpec);
+              }
+            }
+          }
+
+          // 3. Find medium of exchange resource specification
+          let mediumOfExchangeResourceSpec: ResourceSpecification | null = null;
+          if (request.medium_of_exchange_hashes && request.medium_of_exchange_hashes.length > 0) {
+            const mediumOfExchangeHash = request.medium_of_exchange_hashes[0].toString();
+            mediumOfExchangeResourceSpec =
+              state.resourceSpecifications.find((spec) =>
+                spec.note?.includes(`ref:mediumOfExchange:${mediumOfExchangeHash}`)
+              ) || null;
+          }
+
+          // 4. Validate requirements
+          yield* validateRequestMappingRequirements(
+            request,
+            requesterAgent,
+            serviceTypeResourceSpecs,
+            mediumOfExchangeResourceSpec
+          );
+
+          // 5. Create proposal and intents using mapper
+          const mappingResult = yield* mapRequestToProposal({
+            request,
+            requesterAgent,
+            serviceTypeResourceSpecs,
+            mediumOfExchangeResourceSpec: mediumOfExchangeResourceSpec!
+          });
+
+          // 6. Create intents first
+          const createdIntents: Intent[] = [];
+          for (const intentData of mappingResult.allIntents) {
+            const createdIntent = yield* withInitialization(
+              () => hreaService.createIntent({
+                action: intentData.action,
+                provider: intentData.provider,
+                receiver: intentData.receiver,
+                resourceSpecifiedBy: intentData.resourceSpecifiedBy,
+                resourceQuantity: intentData.resourceQuantity
+              }),
+              state.apolloClient,
+              initialize
+            );
+
+            createdIntents.push(createdIntent);
+          }
+
+          // 7. Create proposal with intent IDs in publishes field
+          const createdProposal = yield* withInitialization(
+            () =>
+              hreaService.createProposal({
+                name: mappingResult.proposal.name,
+                note: mappingResult.proposal.note,
+                publishes: createdIntents.map(intent => intent.id)
+              }),
+            state.apolloClient,
+            initialize
+          );
+
+          // 8. Update state
+          state.proposals = [...state.proposals, createdProposal];
+          state.intents = [...state.intents, ...createdIntents];
+          addRequestProposalMapping(requestHash, createdProposal.id);
+
+          console.log(
+            `hREA Store: Created proposal "${createdProposal.name}" with ${createdIntents.length} intents`
+          );
+          return createdProposal;
+        }),
+        E.tapError((error) =>
+          E.sync(() => {
+            console.error('hREA Store: Failed to create proposal from request:', error);
+            setters.setError(String(HreaError.fromError(error, ERROR_CONTEXTS.CREATE_PROPOSAL_FROM_REQUEST)));
+          })
+        )
+      );
+    };
+
+    const createProposalFromOffer = (offer: UIOffer): E.Effect<Proposal | null, HreaError> => {
+      const offerHash = offer.original_action_hash?.toString();
+
+      if (!offerHash) {
+        console.warn('hREA Store: Cannot create proposal for offer without action hash');
+        return E.succeed(null);
+      }
+
+      // Check if we already have a proposal for this offer
+      const existingProposalId = state.offerProposalMappings.get(offerHash);
+      if (existingProposalId) {
+        const existingProposal = state.proposals.find((p) => p.id === existingProposalId);
+        if (existingProposal) {
+          console.log('hREA Store: Proposal already exists for offer:', offer.title);
+          return E.succeed(existingProposal);
+        }
+      }
+
+      return pipe(
+        E.gen(function* () {
+          // 1. Find the offerer agent by action hash reference
+          const creatorHash = offer.creator?.toString();
+          const offererAgent = creatorHash
+            ? findAgentByActionHash(state.agents, creatorHash, 'user')
+            : null;
+
+          if (!offererAgent) {
+            console.error('hREA Store: Offerer agent not found for offer:', offer.title);
+            return null;
+          }
+
+          // 2. Find service type resource specifications
+          const serviceTypeResourceSpecs: ResourceSpecification[] = [];
+          if (offer.service_type_hashes) {
+            for (const serviceTypeHash of offer.service_type_hashes) {
+              const resourceSpec = findResourceSpecByActionHash(
+                state.resourceSpecifications,
+                serviceTypeHash.toString()
+              );
+              if (resourceSpec) {
+                serviceTypeResourceSpecs.push(resourceSpec);
+              }
+            }
+          }
+
+          // 3. Find medium of exchange resource specification
+          let mediumOfExchangeResourceSpec: ResourceSpecification | null = null;
+          if (offer.medium_of_exchange_hashes && offer.medium_of_exchange_hashes.length > 0) {
+            const mediumOfExchangeHash = offer.medium_of_exchange_hashes[0].toString();
+            mediumOfExchangeResourceSpec =
+              state.resourceSpecifications.find((spec) =>
+                spec.note?.includes(`ref:mediumOfExchange:${mediumOfExchangeHash}`)
+              ) || null;
+          }
+
+          // 4. Validate requirements
+          yield* validateOfferMappingRequirements(
+            offer,
+            offererAgent,
+            serviceTypeResourceSpecs,
+            mediumOfExchangeResourceSpec
+          );
+
+          // 5. Create proposal and intents using mapper
+          const mappingResult = yield* mapOfferToProposal({
+            offer,
+            offererAgent,
+            serviceTypeResourceSpecs,
+            mediumOfExchangeResourceSpec: mediumOfExchangeResourceSpec!
+          });
+
+          // 6. Create intents first
+          const createdIntents: Intent[] = [];
+          for (const intentData of mappingResult.allIntents) {
+            const createdIntent = yield* withInitialization(
+              () => hreaService.createIntent({
+                action: intentData.action,
+                provider: intentData.provider,
+                receiver: intentData.receiver,
+                resourceSpecifiedBy: intentData.resourceSpecifiedBy,
+                resourceQuantity: intentData.resourceQuantity
+              }),
+              state.apolloClient,
+              initialize
+            );
+
+            createdIntents.push(createdIntent);
+          }
+
+          // 7. Create proposal with intent IDs in publishes field
+          const createdProposal = yield* withInitialization(
+            () =>
+              hreaService.createProposal({
+                name: mappingResult.proposal.name,
+                note: mappingResult.proposal.note,
+                publishes: createdIntents.map(intent => intent.id)
+              }),
+            state.apolloClient,
+            initialize
+          );
+
+          // 8. Update state
+          state.proposals = [...state.proposals, createdProposal];
+          state.intents = [...state.intents, ...createdIntents];
+          addOfferProposalMapping(offerHash, createdProposal.id);
+
+          console.log(
+            `hREA Store: Created proposal "${createdProposal.name}" with ${createdIntents.length} intents`
+          );
+          return createdProposal;
+        }),
+        E.tapError((error) =>
+          E.sync(() => {
+            console.error('hREA Store: Failed to create proposal from offer:', error);
+            setters.setError(String(HreaError.fromError(error, ERROR_CONTEXTS.CREATE_PROPOSAL_FROM_OFFER)));
+          })
+        )
+      );
+    };
+
+    // ========================================================================
     // EVENT SETUP AND CLEANUP
     // ========================================================================
 
@@ -1412,14 +1842,18 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       handleServiceTypeDeleted,
       handleMediumOfExchangeApproved,
       handleMediumOfExchangeRejected,
-      handleMediumOfExchangeDeleted
+      handleMediumOfExchangeDeleted,
+      handleRequestCreated,
+      handleOfferCreated
     } = createEventHandlers(
       createPersonFromUser,
       createOrganizationFromOrg,
       createResourceSpecificationFromServiceType,
       deleteResourceSpecificationForServiceType,
       createResourceSpecificationFromMediumOfExchange,
-      deleteResourceSpecificationForMediumOfExchange
+      deleteResourceSpecificationForMediumOfExchange,
+      createProposalFromRequest,
+      createProposalFromOffer
     );
 
     const { cleanup: cleanupEventSubscriptions } = createEventSubscriptions(
@@ -1431,7 +1865,9 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       handleServiceTypeDeleted,
       handleMediumOfExchangeApproved,
       handleMediumOfExchangeRejected,
-      handleMediumOfExchangeDeleted
+      handleMediumOfExchangeDeleted,
+      handleRequestCreated,
+      handleOfferCreated
     );
 
     const dispose = () => {
@@ -1462,11 +1898,23 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       get mediumOfExchangeResourceSpecMappings() {
         return state.mediumOfExchangeResourceSpecMappings;
       },
+      get requestProposalMappings() {
+        return state.requestProposalMappings;
+      },
+      get offerProposalMappings() {
+        return state.offerProposalMappings;
+      },
       get agents() {
         return state.agents;
       },
       get resourceSpecifications() {
         return state.resourceSpecifications;
+      },
+      get proposals() {
+        return state.proposals;
+      },
+      get intents() {
+        return state.intents;
       },
       get loading() {
         return state.loading;
@@ -1489,9 +1937,13 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       deleteResourceSpecificationForMediumOfExchange,
       getAllAgents,
       getAllResourceSpecifications,
+      getAllProposals,
+      getAllIntents,
       createRetroactiveMappings,
       createRetroactiveResourceSpecMappings,
       createRetroactiveMediumOfExchangeResourceSpecMappings,
+      createProposalFromRequest,
+      createProposalFromOffer,
       // Manual sync methods for independent updates
       syncUserToAgent,
       syncOrganizationToAgent,
@@ -1502,6 +1954,14 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
         findAgentByActionHash(state.agents, actionHash, entityType),
       findResourceSpecByActionHash: (actionHash: string) =>
         findResourceSpecByActionHash(state.resourceSpecifications, actionHash),
+      findProposalByActionHash: (actionHash: string, entityType: 'request' | 'offer') =>
+        findProposalByActionHash(
+          state.proposals,
+          state.requestProposalMappings,
+          state.offerProposalMappings,
+          actionHash,
+          entityType
+        ),
       getServiceTypeResourceSpecs: () =>
         state.resourceSpecifications.filter((spec) => spec.note?.startsWith('ref:serviceType:')),
       getMediumOfExchangeResourceSpecs: () =>

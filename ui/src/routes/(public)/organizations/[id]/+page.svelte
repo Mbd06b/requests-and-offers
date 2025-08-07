@@ -25,7 +25,7 @@
 
   const modalStore = getModalStore();
   const toastStore = getToastStore();
-  const organizationHash = decodeHashFromBase64(page.params.id) as ActionHash;
+  const organizationHash = page.params.id ? decodeHashFromBase64(page.params.id) as ActionHash : null;
 
   let agentIsCoordinator = $state(false);
   let agentIsMember = $state(false);
@@ -85,6 +85,9 @@
     try {
       loading = true;
       error = null;
+      if (!organizationHash) {
+        throw new Error('Invalid organization ID');
+      }
       organization = await runEffect(organizationsStore.getLatestOrganization(organizationHash));
       if (!organization) {
         throw new Error('Organization not found');
@@ -206,6 +209,7 @@
       response: async (confirmed) => {
         if (confirmed) {
           try {
+            if (!organizationHash) return;
             const success = await runEffect(organizationsStore.leaveOrganization(organizationHash));
             if (success) {
               toastStore.trigger({
@@ -322,7 +326,7 @@
         rounded="rounded-container-token"
         active="bg-primary-500 text-white"
         hover="hover:bg-primary-400-500-token"
-        class="bg-surface-100-800-token/90 rounded-container-token p-2"
+        class="bg-surface-100-800-token/90 p-2 rounded-container-token"
       >
         <Tab bind:group={tabSet} name="members" value={0}>Members</Tab>
         <Tab bind:group={tabSet} name="coordinators" value={1}>Coordinators</Tab>
@@ -334,7 +338,7 @@
           {#if tabSet === 0}
             <!-- Members Tab -->
             <div
-              class="bg-surface-100-800-token/90 card rounded-container-token p-4 backdrop-blur-lg"
+              class="bg-surface-100-800-token/90 card p-4 backdrop-blur-lg rounded-container-token"
             >
               <div class="mb-4 flex items-center justify-between gap-4">
                 <div
@@ -369,7 +373,7 @@
           {:else if tabSet === 1}
             <!-- Coordinators Tab -->
             <div
-              class="bg-surface-100-800-token/90 card rounded-container-token p-4 backdrop-blur-lg"
+              class="bg-surface-100-800-token/90 card p-4 backdrop-blur-lg rounded-container-token"
             >
               <div class="mb-4 flex items-center justify-between gap-4">
                 <div
@@ -403,7 +407,7 @@
           {:else if tabSet === 2}
             <!-- Requests Tab -->
             <div
-              class="bg-surface-100-800-token/90 card rounded-container-token p-4 backdrop-blur-lg"
+              class="bg-surface-100-800-token/90 card p-4 backdrop-blur-lg rounded-container-token"
             >
               <div class="mb-4 flex items-center justify-between">
                 <h3 class="h3">Organization Requests</h3>
@@ -428,7 +432,7 @@
                     This organization hasn't created any requests yet.
                   </p>
                   {#if organization?.status?.status_type !== 'accepted'}
-                    <p class="text-warning-500 text-center">
+                    <p class="text-center text-warning-500">
                       This organization needs to be accepted before creating requests.
                     </p>
                   {:else if agentIsCoordinator || agentIsMember}
@@ -443,7 +447,7 @@
           {:else if tabSet === 3}
             <!-- Offers Tab -->
             <div
-              class="bg-surface-100-800-token/90 card rounded-container-token p-4 backdrop-blur-lg"
+              class="bg-surface-100-800-token/90 card p-4 backdrop-blur-lg rounded-container-token"
             >
               <div class="mb-4 flex items-center justify-between">
                 <h3 class="h3">Organization Offers</h3>
@@ -468,7 +472,7 @@
                     This organization hasn't created any offers yet.
                   </p>
                   {#if organization?.status?.status_type !== 'accepted'}
-                    <p class="text-warning-500 text-center">
+                    <p class="text-center text-warning-500">
                       This organization needs to be accepted before creating offers.
                     </p>
                   {:else if agentIsCoordinator || agentIsMember}

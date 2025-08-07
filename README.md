@@ -1,200 +1,119 @@
 # Requests and Offers
 
-A hAppenings.community project facilitating exchange between Holochain creators, developers, advocates, projects, and organizations.
-Built with Holochain, it provides an agent-centric, distributed marketplace for requests and offers.
+A **decentralized marketplace** for the Holochain ecosystem, enabling creators, developers, and organizations to post requests and offers for services, skills, and resources.
 
-## Quick Links
-
-- [Community Website](https://happenings.community/)
-- [Litepaper](https://happenings-community.gitbook.io/)
-- [Discord Community](https://discord.gg/happening)
-- [Changelog](CHANGELOG.md) - Track project updates and releases.
-
-## Documentation
-
- **[Project Overview](documentation/project-overview.md)**
-
-### Core Documentation
-
-- **[Requirements](documentation/requirements.md)**
-  - [Requirements Details](documentation/requirements/README.md)
-  - [Features](documentation/requirements/features.md)
-  - [MVP](documentation/requirements/mvp.md)
-  - [Roles](documentation/requirements/roles.md)
-  - [Use Cases](documentation/requirements/use-cases.md)
-
-- **[Architecture](documentation/architecture.md)**
-  - [Architecture Details](documentation/architecture/README.md)
-  - [General Overview](documentation/architecture/overview.md)
-  - [hREA Integration](documentation/architecture/hrea-integration.md)
-
-- **[Technical Specifications](documentation/technical-specs.md)**
-  - [Technical Specs Details](documentation/technical-specs/README.md)
-  - [General Specs](documentation/technical-specs/general.md)
-  - [Zome Details](documentation/technical-specs/zomes/README.md)
-  - [UI Structure](documentation/technical-specs/ui-structure.md)
-  - [Event Bus Pattern](documentation/technical-specs/event-bus-pattern.md)
-- **[Work In Progress](documentation/work-in-progress.md)**
-- **[Status](documentation/status.md)**
-
-### Guides
-
-- **[Guides Overview](documentation/guides/README.md)**
-  - [Getting Started](documentation/guides/getting-started.md)
-  - [Installation](documentation/guides/installation.md)
-  - [Contributing](documentation/guides/contributing.md)
-
-## Quick Start
-
-### Prerequisites
-
-- [Holochain Development Environment](https://developer.holochain.org/docs/install/)
-- [Bun](https://bun.sh) 1.0.0+
-
-### Setup
+## 🚀 Quick Start
 
 ```bash
-# Clone repository
+# Clone and setup
 git clone https://github.com/Happening-Community/requests-and-offers.git
-cd requests-and-offers
-
-# Enter nix shell
-nix develop
-
-# Install dependencies
-bun install
+cd requests-and-offers && nix develop
+bun install && bun start
 ```
 
-### Development
+## 📖 Documentation
+
+### Essential Reading
+- **[📋 Project Overview](documentation/project-overview.md)** - Complete project introduction and features
+- **[🚀 Quick Reference](documentation/QUICK_REFERENCE.md)** - Essential commands, patterns, and workflows
+- **[🏗️ Architecture](documentation/architecture.md)** - System design and 7-layer Effect-TS architecture
+- **[🔧 Developer Guide](documentation/guides/getting-started.md)** - Setup and development workflow
+- **[🆘 Troubleshooting](documentation/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[📚 Full Documentation Index](documentation/DOCUMENTATION_INDEX.md)** - Comprehensive documentation catalog
+
+### Quick Reference
+- **Requirements**: [Overview](documentation/requirements.md) | [Features](documentation/requirements/features.md) | [Use Cases](documentation/requirements/use-cases.md)
+- **Technical**: [API Reference](documentation/technical-specs/api/README.md) | [Zomes](documentation/technical-specs/zomes/README.md) | [Testing](documentation/guides/testing.md)
+- **Community**: [Contributing](documentation/guides/contributing.md) | [Discord](https://discord.gg/happening) | [Website](https://happenings.community/)
+
+## 🛠️ Development Commands
+
+### Running the Application
 
 ```bash
-# Start with 2 agents (default)
-bun start
+# Development Mode - Full dev features enabled
+bun start              # Start with 2 agents + mock buttons
+AGENTS=3 bun start     # Custom number of agents
+bun start:tauri        # Desktop app with Tauri
 
-# Start with custom number of agents
-AGENTS=3 bun start
+# Test Mode - Alpha testing without mock buttons
+bun start:test         # Test deployment simulation
 
-# Start with Tauri (desktop app)
-bun start:tauri
+# Production Mode - Clean production build
+bun start:prod         # Production-ready deployment
 ```
-
-This will:
-
-- Create a network of agents
-- Start the UI for each agent
-- Launch the Holochain Playground for conductor introspection
 
 ### Testing
 
 ```bash
-# Run all tests
-bun test
-
-# Frontend tests
-bun test:ui
-
-# Individual zome tests
-bun test:misc           # Functionalities of the misc zome
-bun test:users          # Users functionalities of user_organizations zome
-bun test:administration # Functionalities of the administration zome
-bun test:organizations  # Organizations functionalities of user_organizations zome
-bun test:requests       # Functionalities of the requests zome
-bun test:offers         # Functionalities of the offers zome
-bun test:status         # Unit tests of the status in the administration zome
+bun test               # All tests
+bun test:ui            # Frontend tests
+bun test:unit          # Unit tests (requires Nix)
+bun test:integration   # Integration tests
 ```
-
-### Frontend Tests
-
-```bash
-# Run unit tests (requires Nix environment for hREA integration)
-nix develop --command bun test:unit
-
-# Run integration tests
-cd ui && bun test:integration
-```
-
-### Backend Tests
-
-```bash
-# Run Tryorama tests (requires Nix environment)
-cd tests && bun test
-```
-
-**Note:** Unit tests now require the Nix environment due to hREA DNA integration. Use the autonomous command `nix develop --command bun test:unit` to run tests without manual intervention.
 
 ### Building
 
 ```bash
-# Build zomes
-bun build:zomes
-
-# Build complete hApp
-bun build:happ
-
-# Package for distribution
-bun package
+bun build:zomes        # Build zomes
+bun build:happ         # Build complete hApp
+bun package            # Package for distribution
 ```
 
-## Project Structure
+> **Note**: Unit tests require Nix environment due to hREA integration. Use `nix develop --command bun test:unit` for autonomous execution.
 
-``` bash
+## 🔧 Development Features System
+
+The project includes a comprehensive development features system with three distinct modes:
+
+### 🧑‍💻 Development Mode
+- **Purpose**: Full development experience with all debugging tools
+- **Features**: Mock data buttons, development utilities, debug panels
+- **Command**: `bun start`
+- **Environment**: Uses `.env.development` with all dev features enabled
+
+### 🧪 Test Mode (Alpha)
+- **Purpose**: Alpha testing environment simulating production
+- **Features**: Limited dev features, no mock buttons, realistic testing
+- **Command**: `bun start:test`
+- **Environment**: Uses `.env.test` with selective feature enablement
+
+### 🚀 Production Mode
+- **Purpose**: Clean production deployment
+- **Features**: All development code tree-shaken out, optimized builds
+- **Command**: `bun start:prod`
+- **Environment**: Uses `.env.production` with zero dev features
+
+### Environment Variables
+
+The system uses Vite environment variables for build-time optimization:
+
+```bash
+# Core configuration
+VITE_APP_ENV=development|test|production
+VITE_DEV_FEATURES_ENABLED=true|false
+VITE_MOCK_BUTTONS_ENABLED=true|false
+```
+
+**Tree-Shaking**: Development features are completely removed from production builds through Vite's build-time optimization, ensuring zero overhead in production deployments.
+
+For detailed information, see [Development Features System](documentation/technical-specs/development-features-system.md).
+
+## 📁 Project Structure
+
+```bash
 requests-and-offers/
-├── dnas/                    # Holochain DNA
-│   └── requests_and_offers/
-│       └── zomes/           # DNA zomes
-│           ├── coordinator/ # Coordinator zomes
-│           └── integrity/   # Integrity zomes
-├── ui/                      # SvelteKit frontend
-│   ├── src/
-│   │   ├── lib/             # Reusable code (components, services, stores)
-│   │   │   ├── components/  # UI components (organized by feature)
-│   │   │   ├── services/    # Service layer (Holochain, hREA)
-│   │   │   ├── stores/      # Svelte stores (state management)
-│   │   │   ├── types/       # TypeScript type definitions
-│   │   │   └── utils/       # Utility functions
-│   │   ├── routes/          # SvelteKit routes/pages
-│   │   ├── app.html         # Main HTML template
-│   │   └── ...              # Other config files (app.css, app.d.ts, etc.)
-├── tests/                   # Tryorama tests
-└── documentation/           # Project documentation
-    ├── project-overview.md  # Main project overview
-    ├── requirements.md      # Requirements entry point
-    ├── architecture.md      # Architecture entry point
-    ├── technical-specs.md   # Technical Specs entry point
-    ├── work-in-progress.md  # Current development focus
-    ├── status.md            # Project status
-    ├── requirements/        # Detailed requirements
-    ├── architecture/        # Detailed architecture docs
-    ├── technical-specs/     # Detailed technical specs
-    ├── guides/              # Development guides
-    └── assets/              # Documentation assets
+├── dnas/requests_and_offers/    # Holochain DNA with coordinator/integrity zomes
+├── ui/                          # SvelteKit frontend with 7-layer Effect-TS architecture
+├── tests/                       # Tryorama integration tests
+└── documentation/               # Comprehensive project documentation
 ```
 
-## Feature Development
+See [Architecture Overview](documentation/architecture.md) for detailed system design.
 
-See our [Contributing Guide](documentation/guides/contributing.md) for detailed development workflow:
+## 🤝 Community & Licensing
 
-1. **DNA Development**
-   - Implement zome functionality
-   - Write Tryorama tests
-   - Document entry and link types
-
-2. **Service Layer**
-   - Create Holochain services
-   - Implement store management
-   - Handle state updates
-
-3. **UI Implementation**
-   - Build reusable components
-   - Create feature pages
-   - Integrate with stores
-
-## Community
-
-- Join our [Discord](https://discord.gg/happening)
-- Visit [hAppenings Community](https://happenings.community/)
-- Follow development on [GitHub](https://github.com/Happening-Community/requests-and-offers)
-
-## License
-
-This project is licensed under [Cryptographic Autonomy License version 1.0](LICENSE.md)
+- **Discord**: [Join our community](https://discord.gg/happening)
+- **Website**: [hAppenings.community](https://happenings.community/)
+- **Contributing**: See [Contributing Guide](documentation/guides/contributing.md)
+- **License**: [Cryptographic Autonomy License v1.0](LICENSE.md)

@@ -2,12 +2,14 @@
 export * from './administration.errors';
 export * from './cache.errors';
 export * from './error-handling';
+export * from './exchanges.errors';
 export * from './holochain-client.errors';
 export * from './hrea.errors';
 export * from './mediums-of-exchange.errors';
 export * from './offers.errors';
 export * from './organizations.errors';
 export * from './requests.errors';
+export * from './runtime.errors';
 export * from './service-types.errors';
 export * from './users.errors';
 
@@ -39,6 +41,7 @@ export {
   MediumOfExchangeStoreError,
   MediumsOfExchangeManagementError
 } from './mediums-of-exchange.errors';
+export { ExchangeError } from './exchanges.errors';
 export {
   HolochainClientError,
   ConnectionError,
@@ -46,3 +49,5 @@ export {
   SchemaDecodeError
 } from './holochain-client.errors';
 export { HreaError } from './hrea.errors';
+export { AppRuntimeError, AppRuntimeLegacyError } from './runtime.errors';
+export type { ApplicationError } from './runtime.errors';

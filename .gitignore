@@ -17,6 +17,7 @@ node_modules/
 .cursor
 .augment
 .claude
+.crush
 
 # Temporary files for work in progress
 wip.md
@@ -26,3 +27,7 @@ wip.md
 
 # local files
 **/*.local.*
+
+# Environment files (use .env.example as template)
+ui/.env*
+!ui/.env.example
