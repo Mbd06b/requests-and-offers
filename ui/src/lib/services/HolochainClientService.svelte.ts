@@ -73,8 +73,8 @@ function createHolochainClientService(): HolochainClientService {
           // IMPORTANT: Click port 8888 notification FIRST, then port 8890 notification SECOND, then port 8889 notification THIRD, 
           // if you get the wrong assigned redirects, then just update the url to the port accordingly, svelte hot-reloads this component
           const workspacePrefix = currentHost.split('-')[0];
-          adminUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-2.code.ethosengine.com/`;  // Port 8888
-          appConnectionUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-3.code.ethosengine.com/`;  // Port 8890
+          adminUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-3.code.ethosengine.com/`;  // Port 8888
+          appConnectionUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-1.code.ethosengine.com/`;  // Port 8890
           console.log('Eclipse Che - Admin URL (redirect-1):', adminUrl);
           console.log('Eclipse Che - App URL (redirect-2):', appConnectionUrl);
         } else {
