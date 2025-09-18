@@ -1,3 +1,5 @@
+[![Contribute](https://www.eclipse.org/che/contribute.svg)](https://code.ethosengine.com/#https://github.com/Mbd06b/requests-and-offers)
+
 # Requests and Offers
 
 A **decentralized marketplace** for the Holochain ecosystem, enabling creators, developers, and organizations to post requests and offers for services, skills, and resources.
