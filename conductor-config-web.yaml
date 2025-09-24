@@ -6,8 +6,8 @@ admin_interfaces:
       port: 8888
       allowed_origins: "*"
 network:
-  bootstrap_url: "https://dev-test-bootstrap2.holochain.org/"
-  signal_url: "wss://dev-test-bootstrap2.holochain.org/"
+  bootstrap_url: "https://test-holostrap.elohim.host/"
+  signal_url: "wss://test-holostrap.elohim.host/"
 db_sync_strategy: Resilient
 keystore:
   type: lair_server_in_proc
@@ -29,8 +29,8 @@ admin_interfaces:
       port: 8892
       allowed_origins: "*"
 network:
-  bootstrap_url: "https://dev-test-bootstrap2.holochain.org/"
-  signal_url: "wss://dev-test-bootstrap2.holochain.org/"
+  bootstrap_url: "https://test-holostrap.elohim.host/"
+  signal_url: "wss://test-holostrap.elohim.host/"
 db_sync_strategy: Resilient
 keystore:
   type: lair_server_in_proc
