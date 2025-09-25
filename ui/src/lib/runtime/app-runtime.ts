@@ -11,8 +11,8 @@ import { Effect as E, Layer, pipe, LogLevel, Logger, Context, Duration } from 'e
 // Import all service layers
 import {
   HolochainClientServiceTag,
-  HolochainClientServiceLive
-} from '$lib/services/HolochainClientService.svelte';
+  HolochainClientLive
+} from '$lib/services/holochainClient.service';
 import { HreaServiceTag, HreaServiceLive } from '$lib/services/hrea.service';
 import { UsersServiceTag, UsersServiceLive } from '$lib/services/zomes/users.service';
 import {
@@ -380,7 +380,7 @@ export const createAppRuntime = (
 ): Layer.Layer<AppServicesTag> => {
   // Base service layers (all concrete live implementations)
   const baseLives = Layer.mergeAll(
-    HolochainClientServiceLive,
+    HolochainClientLive,
     HreaServiceLive,
     UsersServiceLive,
     AdministrationServiceLive,
