@@ -12,7 +12,7 @@ import { Effect as E, Layer, pipe, LogLevel, Logger, Context, Duration } from 'e
 import {
   HolochainClientServiceTag,
   HolochainClientServiceLive
-} from '$lib/services/HolochainClientService.svelte';
+} from '$lib/services/holochainClient.service';
 import { HreaServiceTag, HreaServiceLive } from '$lib/services/hrea.service';
 import { UsersServiceTag, UsersServiceLive } from '$lib/services/zomes/users.service';
 import {

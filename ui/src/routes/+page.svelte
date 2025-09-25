@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import usersStore from '$lib/stores/users.store.svelte';
-  import hc from '$lib/services/HolochainClientService.svelte';
+  import { holochainClientService as hc } from '$lib/services/holochainClient.service';
   import { useBackgroundAdminCheck } from '$lib/composables/connection/useBackgroundAdminCheck.svelte';
 
   let error: string | null = $state(null);

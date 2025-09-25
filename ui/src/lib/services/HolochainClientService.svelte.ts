@@ -1,5 +1,4 @@
 import { type AppInfoResponse, AppWebsocket, AdminWebsocket } from '@holochain/client';
-import { Context, Layer } from 'effect';
 
 export type ZomeName =
   | 'users_organizations'
@@ -74,7 +73,7 @@ function createHolochainClientService(): HolochainClientService {
           // if you get the wrong assigned redirects, then just update the url to the port accordingly, svelte hot-reloads this component
           const workspacePrefix = currentHost.split('-')[0];
           adminUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-3.code.ethosengine.com/`;  // Port 8888
-          appConnectionUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-1.code.ethosengine.com/`;  // Port 8890
+          appConnectionUrl = `wss://${workspacePrefix}-gmail-com-recs-and-offers-code-redirect-2.code.ethosengine.com/`;  // Port 8890
           console.log('Eclipse Che - Admin URL (redirect-3):', adminUrl);
           console.log('Eclipse Che - App URL (redirect-1):', appConnectionUrl);
         } else {
@@ -260,13 +259,3 @@ function createHolochainClientService(): HolochainClientService {
 
 const holochainClientService = createHolochainClientService();
 export default holochainClientService;
-
-export class HolochainClientServiceTag extends Context.Tag('HolochainClientService')<
-  HolochainClientServiceTag,
-  HolochainClientService
->() {}
-
-export const HolochainClientServiceLive: Layer.Layer<HolochainClientServiceTag> = Layer.succeed(
-  HolochainClientServiceTag,
-  holochainClientService
-);

@@ -1,6 +1,9 @@
-import { AppWebsocket, type AppInfoResponse } from '@holochain/client';
 import { Effect as E, Context, Layer, pipe } from 'effect';
+
+console.log('[HCS] Module loading:', import.meta?.url ?? 'unknown');
 import { Schema } from 'effect';
+import type { AppWebsocket, AppInfoResponse } from '@holochain/client';
+
 import {
   HolochainClientError,
   ConnectionError,
@@ -8,28 +11,21 @@ import {
   SchemaDecodeError,
   HOLOCHAIN_CLIENT_CONTEXTS
 } from '$lib/errors';
-import holochainClientService from './HolochainClientService.svelte';
 
-export type ZomeName =
-  | 'users_organizations'
-  | 'requests'
-  | 'offers'
-  | 'administration'
-  | 'service_types'
-  | 'mediums_of_exchange'
-  | 'misc'
-  | 'exchanges'
-  | 'hrea_economic_event'
-  | 'hrea_observation';
+// Bring in the concrete Svelte client (only the instance/types)
+import concrete, {
+  type HolochainClientService as ConcreteClient,
+  type ZomeName,
+  type RoleName,
+} from './HolochainClientService.svelte';
 
-export type RoleName = 'requests_and_offers' | 'hrea';
+// Re-export the concrete instance for components that want direct, non-Effect use
+export { default as holochainClientService } from './HolochainClientService.svelte';
+export type { ZomeName, RoleName } from './HolochainClientService.svelte';
 
-/**
- * Pure Effect-based HolochainClient service interface
- */
-export interface HolochainClientService {
-  readonly appId: string;
-  readonly connectClientEffect: () => E.Effect<AppWebsocket, HolochainClientError>;
+/** Effect-first interface that your zome services expect */
+export interface HolochainClientEffectService {
+  readonly connectClientEffect: () => E.Effect<AppWebsocket, ConnectionError>;
   readonly getAppInfoEffect: () => E.Effect<AppInfoResponse, HolochainClientError>;
   readonly callZomeEffect: <A>(
     zomeName: ZomeName,
@@ -50,66 +46,67 @@ export interface HolochainClientService {
   readonly getClientEffect: () => E.Effect<AppWebsocket | null, never>;
 }
 
-/**
- * Context tag for HolochainClient service
- */
-export class HolochainClientServiceTag extends Context.Tag('HolochainClientService')<
-  HolochainClientServiceTag,
-  HolochainClientService
->() {}
+/** Adapter: wrap the concrete Svelte client into Effect-returning methods */
+function makeEffectClient(c: ConcreteClient): HolochainClientEffectService {
+  return {
+    connectClientEffect: () => E.tryPromise({
+      try: async () => {
+        if (!c.client) {
+          await c.connectClient();
+        }
+        return c.client!;
+      },
+      catch: (error) => HolochainClientError.fromError(error, HOLOCHAIN_CLIENT_CONTEXTS.CONNECT)
+    }),
 
-/**
- * Implementation of the HolochainClient service that uses the shared Svelte client
- */
-const createHolochainClientService = (): E.Effect<HolochainClientService, never> =>
-  E.gen(function* () {
-    const appId = 'requests_and_offers';
+    getAppInfoEffect: () => E.tryPromise({
+      try: async () => {
+        if (!c.client) {
+          throw new Error('Client not connected');
+        }
+        return await c.getAppInfo();
+      },
+      catch: (error) =>
+        HolochainClientError.fromError(error, HOLOCHAIN_CLIENT_CONTEXTS.GET_DNA_INFO)
+    }),
 
-    const connectClientEffect = (): E.Effect<AppWebsocket, ConnectionError> =>
-      E.tryPromise({
-        try: async () => {
-          // Use the shared Svelte client connection
-          if (!holochainClientService.client) {
-            await holochainClientService.connectClient();
-          }
-          return holochainClientService.client!;
-        },
-        catch: (error) => HolochainClientError.fromError(error, HOLOCHAIN_CLIENT_CONTEXTS.CONNECT)
-      });
-
-    const getAppInfoEffect = (): E.Effect<AppInfoResponse, HolochainClientError> =>
-      E.tryPromise({
-        try: async () => {
-          // Use the shared Svelte client
-          if (!holochainClientService.client) {
-            throw new Error('Client not connected');
-          }
-          return await holochainClientService.getAppInfo();
-        },
-        catch: (error) =>
-          HolochainClientError.fromError(error, HOLOCHAIN_CLIENT_CONTEXTS.GET_DNA_INFO)
-      });
-
-    const callZomeRawEffect = (
+    callZomeRawEffect: (
       zomeName: ZomeName,
       fnName: string,
       payload: unknown,
       capSecret: Uint8Array | undefined = undefined,
       roleName: RoleName = 'requests_and_offers'
-    ): E.Effect<unknown, HolochainClientError> =>
+    ) => E.tryPromise({
+      try: async () => {
+        if (!c.client) {
+          throw new Error('Client not connected');
+        }
+        return await c.callZome(zomeName, fnName, payload, capSecret, roleName);
+      },
+      catch: (error) =>
+        HolochainClientError.fromError(
+          error,
+          HOLOCHAIN_CLIENT_CONTEXTS.CALL_ZOME,
+          'call_zome',
+          zomeName,
+          fnName
+        )
+    }),
+
+    callZomeEffect: <A>(
+      zomeName: ZomeName,
+      fnName: string,
+      payload: unknown,
+      outputSchema: Schema.Schema<A>,
+      capSecret: Uint8Array | undefined = undefined,
+      roleName: RoleName = 'requests_and_offers'
+    ) => pipe(
       E.tryPromise({
         try: async () => {
-          // Use the shared Svelte client
-          if (!holochainClientService.client) {
+          if (!c.client) {
             throw new Error('Client not connected');
           }
-          return await holochainClientService.callZome(
-            zomeName,
-            fnName,
-            payload,
-            capSecret,
-            roleName
-          );
+          return await c.callZome(zomeName, fnName, payload, capSecret, roleName);
         },
         catch: (error) =>
           HolochainClientError.fromError(
@@ -119,50 +116,40 @@ const createHolochainClientService = (): E.Effect<HolochainClientService, never>
             zomeName,
             fnName
           )
-      });
+      }),
+      E.flatMap(
+        (result): E.Effect<A, HolochainClientError> =>
+          E.try({
+            try: () => Schema.decodeUnknownSync(outputSchema)(result),
+            catch: (parseError) =>
+              HolochainClientError.fromError(
+                parseError,
+                HOLOCHAIN_CLIENT_CONTEXTS.VALIDATE_RESPONSE
+              )
+          })
+      )
+    ),
 
-    const callZomeEffect = <A>(
-      zomeName: ZomeName,
-      fnName: string,
-      payload: unknown,
-      outputSchema: Schema.Schema<A>,
-      capSecret: Uint8Array | undefined = undefined,
-      roleName: RoleName = 'requests_and_offers'
-    ): E.Effect<A, HolochainClientError> =>
-      pipe(
-        callZomeRawEffect(zomeName, fnName, payload, capSecret, roleName),
-        E.flatMap(
-          (result): E.Effect<A, HolochainClientError> =>
-            E.try({
-              try: () => Schema.decodeUnknownSync(outputSchema)(result),
-              catch: (parseError) =>
-                HolochainClientError.fromError(
-                  parseError,
-                  HOLOCHAIN_CLIENT_CONTEXTS.VALIDATE_RESPONSE
-                )
-            })
-        )
-      );
+    isConnectedEffect: () => E.sync(() => c.isConnected),
 
-    const isConnectedEffect = (): E.Effect<boolean, never> =>
-      E.succeed(holochainClientService.isConnected);
+    getClientEffect: () => E.sync(() => c.client),
+  };
+}
 
-    const getClientEffect = (): E.Effect<AppWebsocket | null, never> =>
-      E.succeed(holochainClientService.client);
+/** The ONLY Tag (string stays 'HolochainClientService' for compatibility) */
+export class HolochainClientServiceTag extends Context.Tag('HolochainClientService')<
+  HolochainClientServiceTag,
+  HolochainClientEffectService
+>() {}
 
-    return {
-      appId,
-      connectClientEffect,
-      getAppInfoEffect,
-      callZomeEffect,
-      callZomeRawEffect,
-      isConnectedEffect,
-      getClientEffect
-    };
-  });
+const tagKey = (HolochainClientServiceTag as any).key ?? (HolochainClientServiceTag as any)._id ?? HolochainClientServiceTag;
+console.debug('[HCS] DEFINE', {
+  module: import.meta?.url ?? 'unknown module',
+  tagKey: String(tagKey),
+});
 
-/**
- * Live layer for HolochainClient service
- */
-export const HolochainClientLive: Layer.Layer<HolochainClientServiceTag, never, never> =
-  Layer.effect(HolochainClientServiceTag, createHolochainClientService());
+/** Live layer bound to the Effect interface (built from the concrete client) */
+export const HolochainClientServiceLive: Layer.Layer<HolochainClientServiceTag, never, never> =
+  Layer.succeed(HolochainClientServiceTag, makeEffectClient(concrete));
+
+console.debug('[HCS] PROVIDE layer built in', import.meta?.url ?? 'unknown module', 'tagKey:', String(tagKey));

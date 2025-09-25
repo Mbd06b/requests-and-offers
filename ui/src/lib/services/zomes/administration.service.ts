@@ -2,7 +2,7 @@ import type { ActionHash, Link, Record, AgentPubKey } from '@holochain/client';
 import { Context, Effect as E, Layer, pipe } from 'effect';
 import { AdministrationError } from '$lib/errors/administration.errors';
 import { ADMINISTRATION_CONTEXTS } from '$lib/errors/error-contexts';
-import { HolochainClientServiceTag, type HolochainClientService } from '../holochainClient.service';
+import { HolochainClientServiceTag, type HolochainClientService } from '$lib/services/holochainClient.service';
 import {
   AdministrationEntitySchema,
   StatusInDHTSchema,

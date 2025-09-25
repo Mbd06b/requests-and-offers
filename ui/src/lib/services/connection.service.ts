@@ -1,6 +1,6 @@
 import { Effect as E, Context, Layer, Schedule, Duration, pipe } from 'effect';
 import { HolochainClientError, ConnectionError, HOLOCHAIN_CLIENT_CONTEXTS } from '$lib/errors';
-import hc from './HolochainClientService.svelte';
+import { holochainClientService as hc } from './holochainClient.service';
 
 /**
  * Effect-first connection service for handling Holochain client connections

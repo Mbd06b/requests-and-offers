@@ -3,7 +3,7 @@
   import { encodeHashToBase64, decodeHashFromBase64 } from '@holochain/client';
   import mediumsOfExchangeStore from '$lib/stores/mediums_of_exchange.store.svelte';
   import { Effect as E } from 'effect';
-  import hc from '$lib/services/HolochainClientService.svelte';
+  import { holochainClientService as hc } from '$lib/services/holochainClient.service';
 
   type Props = {
     mediumOfExchangeActionHash?: ActionHash;

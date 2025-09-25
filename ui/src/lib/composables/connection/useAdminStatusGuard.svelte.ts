@@ -2,7 +2,7 @@ import { onMount, onDestroy } from 'svelte';
 import administrationStore from '$lib/stores/administration.store.svelte';
 import { runEffect } from '$lib/utils/effect';
 import { Effect as E, pipe } from 'effect';
-import { HolochainClientServiceLive } from '$lib/services/HolochainClientService.svelte';
+import { HolochainClientServiceLive } from '$lib/services/holochainClient.service';
 import { AdministrationError } from '$lib/errors/administration.errors';
 
 /**
