@@ -10,9 +10,9 @@ import {
   type EntityCacheService
 } from '$lib/utils/cache.svelte';
 import {
-  HolochainClientLive,
+  HolochainClientServiceLive,
   HolochainClientServiceTag
-} from '$lib/services/holochainClient.service';
+} from '$lib/services/HolochainClientService.svelte';
 import { AdministrationError } from '$lib/errors/administration.errors';
 import { CacheNotFoundError } from '$lib/errors';
 import { storeEventBus } from '$lib/stores/storeEvents';
@@ -87,12 +87,12 @@ export type AdministrationStore = {
   readonly error: string | null;
   readonly cache: EntityCacheService<UIUser | UIOrganization | UIStatus>;
 
-  initialize: () => E.Effect<void, AdministrationError, HolochainClientServiceTag>;
-  forceRefresh: () => E.Effect<void, AdministrationError, HolochainClientServiceTag>;
+  initialize: () => E.Effect<void, AdministrationError>;
+  forceRefresh: () => E.Effect<void, AdministrationError>;
   fetchAllUsers: () => E.Effect<UIUser[], AdministrationError>;
   fetchAllOrganizations: () => E.Effect<UIOrganization[], AdministrationError>;
-  fetchAllUsersStatusHistory: () => E.Effect<void, AdministrationError, never>;
-  fetchAllOrganizationsStatusHistory: () => E.Effect<void, AdministrationError, never>;
+  fetchAllUsersStatusHistory: () => E.Effect<void, AdministrationError>;
+  fetchAllOrganizationsStatusHistory: () => E.Effect<void, AdministrationError>;
   registerNetworkAdministrator: (
     entity_original_action_hash: ActionHash,
     agent_pubkeys: AgentPubKey[]
@@ -146,14 +146,14 @@ export type AdministrationStore = {
   unsuspendOrganization: (
     organization: UIOrganization
   ) => E.Effect<HolochainRecord, AdministrationError>;
-  refreshAll: () => E.Effect<void, AdministrationError, HolochainClientServiceTag>;
+  refreshAll: () => E.Effect<void, AdministrationError>;
   invalidateCache: () => void;
   getAllRevisionsForStatus: (
     entity: UIUser | UIOrganization
   ) => E.Effect<UIStatus[], AdministrationError>;
   getEntityStatusHistory: (
     entity: UIUser | UIOrganization
-  ) => E.Effect<Revision[], AdministrationError, never>;
+  ) => E.Effect<Revision[], AdministrationError>;
 };
 
 // ============================================================================
@@ -231,9 +231,6 @@ const createUIStatusFromRecord = (record: HolochainRecord): UIStatus | null => {
     if (recordEntry.Present && recordEntry.Present.entry) {
       entryData = recordEntry.Present.entry;
       console.log('📦 Found Present.entry - entryData:', entryData);
-    } else if (recordEntry.entry) {
-      entryData = recordEntry.entry;
-      console.log('📦 Found direct entry - entryData:', entryData);
     } else {
       console.error('❌ No valid entry found in record. Structure:', recordEntry);
       return null;
@@ -263,11 +260,12 @@ const createUIStatusFromRecord = (record: HolochainRecord): UIStatus | null => {
 
     if (decodedData && typeof decodedData === 'object') {
       // Strategy 1: Direct property access
-      if (decodedData.status_type) {
-        status_type = String(decodedData.status_type);
-        reason = decodedData.reason ? String(decodedData.reason) : undefined;
-        suspended_until = decodedData.suspended_until
-          ? String(decodedData.suspended_until)
+      const decodedObj = decodedData as any;
+      if (decodedObj.status_type) {
+        status_type = String(decodedObj.status_type);
+        reason = decodedObj.reason ? String(decodedObj.reason) : undefined;
+        suspended_until = decodedObj.suspended_until
+          ? String(decodedObj.suspended_until)
           : undefined;
         console.log('✅ Strategy 1 (direct access) succeeded:', {
           status_type,
@@ -287,8 +285,8 @@ const createUIStatusFromRecord = (record: HolochainRecord): UIStatus | null => {
         });
       }
       // Strategy 3: Nested object structure
-      else if (decodedData.status && typeof decodedData.status === 'object') {
-        const statusObj = decodedData.status;
+      else if ((decodedData as any).status && typeof (decodedData as any).status === 'object') {
+        const statusObj = (decodedData as any).status;
         status_type = statusObj.status_type ? String(statusObj.status_type) : 'unknown';
         reason = statusObj.reason ? String(statusObj.reason) : undefined;
         suspended_until = statusObj.suspended_until ? String(statusObj.suspended_until) : undefined;
@@ -636,7 +634,7 @@ export const createAdministrationStore = (): E.Effect<
     // STORE METHODS
     // ========================================================================
 
-    const initialize = (): E.Effect<void, AdministrationError, HolochainClientServiceTag> =>
+    const initialize = (): E.Effect<void, AdministrationError> =>
       withLoadingState(() =>
         pipe(
           E.all([fetchAllUsers(), fetchAllOrganizations(), checkIfAgentIsAdministrator()]),
@@ -650,7 +648,7 @@ export const createAdministrationStore = (): E.Effect<
         )
       )(setters);
 
-    const forceRefresh = (): E.Effect<void, AdministrationError, HolochainClientServiceTag> =>
+    const forceRefresh = (): E.Effect<void, AdministrationError> =>
       withLoadingState(() =>
         pipe(
           // Clear cache and state first
@@ -821,15 +819,20 @@ export const createAdministrationStore = (): E.Effect<
     const checkIfAgentIsAdministrator = (): E.Effect<boolean, AdministrationError> =>
       withLoadingState(() =>
         pipe(
-          holochainClientService.getClientEffect(),
-          E.flatMap((client) =>
-            client ? E.succeed(client.myPubKey) : E.fail(new Error('Client not connected'))
-          ),
+          E.tryPromise({
+            try: async () => {
+              const appInfo = await holochainClientService.getAppInfo();
+              return appInfo?.agent_pub_key;
+            },
+            catch: () => new Error('Failed to get agent public key')
+          }),
           E.flatMap((agentPubKey) =>
-            administrationService.checkIfAgentIsAdministrator({
-              entity: AdministrationEntity.Network,
-              agent_pubkey: agentPubKey
-            })
+            agentPubKey
+              ? administrationService.checkIfAgentIsAdministrator({
+                  entity: AdministrationEntity.Network,
+                  agent_pubkey: agentPubKey
+                })
+              : E.fail(new Error('No agent public key found'))
           ),
           E.tap((isAdmin) => {
             agentIsAdministrator = isAdmin;
@@ -1098,7 +1101,7 @@ export const createAdministrationStore = (): E.Effect<
         )
       );
 
-    const fetchAllUsersStatusHistory = (): E.Effect<void, AdministrationError, never> =>
+    const fetchAllUsersStatusHistory = (): E.Effect<void, AdministrationError> =>
       withLoadingState(() =>
         pipe(
           E.succeed(allUsers),
@@ -1173,7 +1176,7 @@ export const createAdministrationStore = (): E.Effect<
         )
       )(setters);
 
-    const fetchAllOrganizationsStatusHistory = (): E.Effect<void, AdministrationError, never> =>
+    const fetchAllOrganizationsStatusHistory = (): E.Effect<void, AdministrationError> =>
       withLoadingState(() =>
         pipe(
           E.succeed(allOrganizations),
@@ -1340,7 +1343,7 @@ export const createAdministrationStore = (): E.Effect<
         )
       )(setters);
 
-    const refreshAll = (): E.Effect<void, AdministrationError, HolochainClientServiceTag> =>
+    const refreshAll = (): E.Effect<void, AdministrationError> =>
       withLoadingState(() =>
         pipe(
           E.all([
@@ -1398,7 +1401,7 @@ export const createAdministrationStore = (): E.Effect<
 
     const getEntityStatusHistory = (
       entity: UIUser | UIOrganization
-    ): E.Effect<Revision[], AdministrationError, never> =>
+    ): E.Effect<Revision[], AdministrationError> =>
       pipe(
         E.gen(function* () {
           const holochainClient = yield* HolochainClientServiceTag;
@@ -1486,11 +1489,15 @@ export const createAdministrationStore = (): E.Effect<
 
                       return pipe(
                         // Get the original Create record using the original status hash
-                        holochainClient.callZomeRawEffect(
-                          'administration',
-                          'get_record',
-                          originalStatusHash
-                        ),
+                        E.tryPromise({
+                          try: () =>
+                            holochainClient.callZome(
+                              'administration' as any,
+                              'get_record',
+                              originalStatusHash
+                            ),
+                          catch: (error) => new Error(`Failed to fetch original record: ${error}`)
+                        }),
                         E.map((originalRecord) => {
                           if (originalRecord) {
                             console.log(`✅ Found missing Create record for ${entity.name}`);
@@ -1515,8 +1522,8 @@ export const createAdministrationStore = (): E.Effect<
                     }),
                     E.map((allRecords) => {
                       // Sort records chronologically
-                      const sortedRecords = allRecords.sort(
-                        (a, b) =>
+                      const sortedRecords = (allRecords as HolochainRecord[]).sort(
+                        (a: HolochainRecord, b: HolochainRecord) =>
                           a.signed_action.hashed.content.timestamp -
                           b.signed_action.hashed.content.timestamp
                       );
@@ -1651,7 +1658,7 @@ const administrationStore: AdministrationStore = pipe(
   createAdministrationStore(),
   E.provide(AdministrationServiceLive),
   E.provide(CacheServiceLive),
-  E.provide(HolochainClientLive),
+  E.provide(HolochainClientServiceLive),
   E.runSync
 );
 

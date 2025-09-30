@@ -1,4 +1,5 @@
 import { type AppInfoResponse, AppWebsocket, AdminWebsocket } from '@holochain/client';
+import { Context, Layer } from 'effect';
 
 export type ZomeName =
   | 'users_organizations'
@@ -259,3 +260,14 @@ function createHolochainClientService(): HolochainClientService {
 
 const holochainClientService = createHolochainClientService();
 export default holochainClientService;
+
+export class HolochainClientServiceTag extends Context.Tag('HolochainClientService')<
+  HolochainClientServiceTag,
+  HolochainClientService
+>() {}
+
+// Layer for the Svelte service
+export const HolochainClientServiceLive: Layer.Layer<HolochainClientServiceTag> = Layer.succeed(
+  HolochainClientServiceTag,
+  holochainClientService
+);

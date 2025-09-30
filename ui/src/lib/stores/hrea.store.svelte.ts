@@ -1,12 +1,12 @@
 import { HreaServiceTag, HreaServiceLive } from '$lib/services/hrea.service';
 import { Effect as E, Layer, pipe } from 'effect';
+import { HolochainClientServiceLive } from '$lib/services/HolochainClientService.svelte';
 import { storeEventBus } from '$lib/stores/storeEvents';
 import { HreaError } from '$lib/errors';
 
 // Import standardized store helpers
 import {
   withLoadingState,
-  createErrorHandler,
   createStandardEventEmitters,
   type LoadingStateSetter
 } from '$lib/utils/store-helpers';
@@ -16,13 +16,11 @@ import type { UIUser, UIOrganization, UIServiceType, UIRequest, UIOffer } from '
 import type { UIMediumOfExchange } from '$lib/schemas/mediums-of-exchange.schemas';
 import {
   createProposalFromRequest as mapRequestToProposal,
-  validateRequestMappingRequirements,
-  createProposalReference as createRequestProposalReference
+  validateRequestMappingRequirements
 } from '$lib/services/mappers/request-proposal.mapper';
 import {
   createProposalFromOffer as mapOfferToProposal,
-  validateOfferMappingRequirements,
-  createProposalReference as createOfferProposalReference
+  validateOfferMappingRequirements
 } from '$lib/services/mappers/offer-proposal.mapper';
 
 // ============================================================================
@@ -54,12 +52,6 @@ const ERROR_CONTEXTS = {
 // ============================================================================
 // ERROR HANDLING & EVENT EMISSION
 // ============================================================================
-
-/**
- * Standardized error handler for hREA operations
- */
-const handleHreaError = createErrorHandler(HreaError.fromError, 'hREA operation failed');
-
 /**
  * Create standardized event emitters for hREA entities
  */
@@ -703,7 +695,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
           hreaService.initialize(),
           E.tap((client) =>
             E.sync(() => {
-              state.apolloClient = client;
+              state.apolloClient = client as ApolloClient<NormalizedCacheObject>;
             })
           ),
           E.asVoid,
@@ -1983,6 +1975,13 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
 // ============================================================================
 
 import { withHolo, runEffectWithHolo } from '$lib/effectEnv';
+
+const hreaStore: HreaStore = pipe(
+  createHreaStore(),
+  E.provide(HreaServiceLive),
+  E.provide(HolochainClientServiceLive),
+  E.runSync
+);
 
 // Factory: provide only HreaService here; Holo layer is provided at run time.
 export const makeHreaStore = () =>
