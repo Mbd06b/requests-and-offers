@@ -4,7 +4,7 @@
   import type { Snippet } from 'svelte';
   import type { AgentPubKey } from '@holochain/client';
   import usersStore from '$lib/stores/users.store.svelte';
-  import hc from '$lib/services/HolochainClientService.svelte';
+  import { holochainClientService as hc } from '$lib/services/holochainClient.service';
   import administrationStore from '$lib/stores/administration.store.svelte';
   import {
     Modal,
@@ -27,10 +27,10 @@
   import MenuDrawer from '$lib/components/shared/drawers/MenuDrawer.svelte';
   import ConfirmModal from '$lib/components/shared/dialogs/ConfirmModal.svelte';
   import type { ConfirmModalMeta } from '$lib/types/ui';
-  import hreaStore from '$lib/stores/hrea.store.svelte';
+  import { getHreaStore } from '$lib/stores/hrea.store.svelte';
   import { runEffect } from '$lib/utils/effect';
   import { useBackgroundAdminCheck } from '$lib/composables/connection/useBackgroundAdminCheck.svelte';
-  import { HolochainClientServiceLive } from '$lib/services/HolochainClientService.svelte';
+  import { HolochainClientServiceLive } from '$lib/services/holochainClient.service';
   import { AdministrationError } from '$lib/errors/administration.errors';
   import { storeEventBus } from '$lib/stores/storeEvents';
   import { initializeToast } from '$lib/utils/toast';
@@ -414,6 +414,7 @@
     yield* E.catchAll(
       E.tryPromise({
         try: async () => {
+          const hreaStore = await getHreaStore();
           await runEffect(hreaStore.initialize());
           console.log('✅ hREA initialized successfully');
           updateStep('hrea', 'completed', 'hREA service ready');

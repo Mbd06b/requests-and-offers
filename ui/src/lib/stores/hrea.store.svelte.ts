@@ -1,13 +1,12 @@
 import { HreaServiceTag, HreaServiceLive } from '$lib/services/hrea.service';
 import { Effect as E, Layer, pipe } from 'effect';
-import { HolochainClientLive } from '$lib/services/holochainClient.service';
+import { HolochainClientServiceLive } from '$lib/services/HolochainClientService.svelte';
 import { storeEventBus } from '$lib/stores/storeEvents';
 import { HreaError } from '$lib/errors';
 
 // Import standardized store helpers
 import {
   withLoadingState,
-  createErrorHandler,
   createStandardEventEmitters,
   type LoadingStateSetter
 } from '$lib/utils/store-helpers';
@@ -17,13 +16,11 @@ import type { UIUser, UIOrganization, UIServiceType, UIRequest, UIOffer } from '
 import type { UIMediumOfExchange } from '$lib/schemas/mediums-of-exchange.schemas';
 import {
   createProposalFromRequest as mapRequestToProposal,
-  validateRequestMappingRequirements,
-  createProposalReference as createRequestProposalReference
+  validateRequestMappingRequirements
 } from '$lib/services/mappers/request-proposal.mapper';
 import {
   createProposalFromOffer as mapOfferToProposal,
-  validateOfferMappingRequirements,
-  createProposalReference as createOfferProposalReference
+  validateOfferMappingRequirements
 } from '$lib/services/mappers/offer-proposal.mapper';
 
 // ============================================================================
@@ -55,12 +52,6 @@ const ERROR_CONTEXTS = {
 // ============================================================================
 // ERROR HANDLING & EVENT EMISSION
 // ============================================================================
-
-/**
- * Standardized error handler for hREA operations
- */
-const handleHreaError = createErrorHandler(HreaError.fromError, 'hREA operation failed');
-
 /**
  * Create standardized event emitters for hREA entities
  */
@@ -294,7 +285,7 @@ const withInitialization = <T, E>(
   apolloClient: ApolloClient<NormalizedCacheObject> | null,
   initialize: () => E.Effect<void, HreaError>
 ) =>
-  pipe(
+  E.runPromise(withHolo(
     E.void,
     E.flatMap(() => {
       if (!apolloClient) {
@@ -327,13 +318,13 @@ const createEventHandlers = (
   createProposalFromOffer: (offer: UIOffer) => E.Effect<Proposal | null, HreaError>
 ) => {
   const handleUserAccepted = (user: UIUser) => {
-    pipe(createPersonFromUser(user), E.runPromise).catch((err) =>
+    E.runPromise(withHolo(createPersonFromUser(user))).catch((err) =>
       console.error('hREA Store: Failed to create person agent:', err)
     );
   };
 
   const handleOrganizationAccepted = (organization: UIOrganization) => {
-    pipe(createOrganizationFromOrg(organization), E.runPromise).catch((err) =>
+    E.runPromise(withHolo(createOrganizationFromOrg(organization))).catch((err) =>
       console.error('hREA Store: Failed to create organization agent:', err)
     );
   };
@@ -347,7 +338,7 @@ const createEventHandlers = (
         serviceType.name
       );
 
-      pipe(createResourceSpecificationFromServiceType(serviceType), E.runPromise).catch((err) =>
+      E.runPromise(withHolo(createResourceSpecificationFromServiceType(serviceType))).catch((err) =>
         console.error(
           'hREA Store: Failed to create resource specification for admin-created service type:',
           err
@@ -364,7 +355,7 @@ const createEventHandlers = (
     );
 
     // Create ResourceSpecification from the approved ServiceType
-    pipe(createResourceSpecificationFromServiceType(serviceType), E.runPromise).catch((err) =>
+    E.runPromise(withHolo(createResourceSpecificationFromServiceType(serviceType))).catch((err) =>
       console.error(
         'hREA Store: Failed to create resource specification for approved service type:',
         err
@@ -380,7 +371,7 @@ const createEventHandlers = (
         'hREA Store: ServiceType rejected, removing ResourceSpecification:',
         serviceType.name
       );
-      pipe(deleteResourceSpecificationForServiceType(serviceTypeHash), E.runPromise).catch((err) =>
+      E.runPromise(withHolo(deleteResourceSpecificationForServiceType(serviceTypeHash))).catch((err) =>
         console.error(
           'hREA Store: Failed to delete resource specification for rejected service type:',
           err
@@ -395,7 +386,7 @@ const createEventHandlers = (
       'hREA Store: ServiceType deleted, removing ResourceSpecification:',
       serviceTypeHash
     );
-    pipe(deleteResourceSpecificationForServiceType(serviceTypeHash), E.runPromise).catch((err) =>
+    E.runPromise(withHolo(deleteResourceSpecificationForServiceType(serviceTypeHash))).catch((err) =>
       console.error(
         'hREA Store: Failed to delete resource specification for deleted service type:',
         err
@@ -410,7 +401,7 @@ const createEventHandlers = (
       mediumOfExchange.name
     );
     // Create ResourceSpecification from the approved Medium of Exchange
-    pipe(createResourceSpecificationFromMediumOfExchange(mediumOfExchange), E.runPromise).catch(
+    E.runPromise(withHolo(createResourceSpecificationFromMediumOfExchange(mediumOfExchange))).catch(
       (err) =>
         console.error(
           'hREA Store: Failed to create resource specification for approved medium of exchange:',
@@ -427,10 +418,9 @@ const createEventHandlers = (
         'hREA Store: Medium of Exchange rejected, removing ResourceSpecification:',
         mediumOfExchange.name
       );
-      pipe(
-        deleteResourceSpecificationForMediumOfExchange(mediumOfExchangeHash),
-        E.runPromise
-      ).catch((err) =>
+      E.runPromise(withHolo(
+        deleteResourceSpecificationForMediumOfExchange(mediumOfExchangeHash)
+      )).catch((err) =>
         console.error(
           'hREA Store: Failed to delete resource specification for rejected medium of exchange:',
           err
@@ -445,7 +435,7 @@ const createEventHandlers = (
       'hREA Store: Medium of Exchange deleted, removing ResourceSpecification:',
       mediumOfExchangeHash
     );
-    pipe(deleteResourceSpecificationForMediumOfExchange(mediumOfExchangeHash), E.runPromise).catch(
+    E.runPromise(withHolo(deleteResourceSpecificationForMediumOfExchange(mediumOfExchangeHash))).catch(
       (err) =>
         console.error(
           'hREA Store: Failed to delete resource specification for deleted medium of exchange:',
@@ -456,14 +446,14 @@ const createEventHandlers = (
 
   const handleRequestCreated = (request: UIRequest) => {
     console.log('hREA Store: Request created, auto-creating proposal:', request.title);
-    pipe(createProposalFromRequest(request), E.runPromise).catch((err) =>
+    E.runPromise(withHolo(createProposalFromRequest(request))).catch((err) =>
       console.error('hREA Store: Failed to create proposal from request:', err)
     );
   };
 
   const handleOfferCreated = (offer: UIOffer) => {
     console.log('hREA Store: Offer created, auto-creating proposal:', offer.title);
-    pipe(createProposalFromOffer(offer), E.runPromise).catch((err) =>
+    E.runPromise(withHolo(createProposalFromOffer(offer))).catch((err) =>
       console.error('hREA Store: Failed to create proposal from offer:', err)
     );
   };
@@ -701,11 +691,11 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
 
     const initialize = (): E.Effect<void, HreaError> =>
       withLoadingState(() =>
-        pipe(
+        E.runPromise(withHolo(
           hreaService.initialize(),
           E.tap((client) =>
             E.sync(() => {
-              state.apolloClient = client;
+              state.apolloClient = client as ApolloClient<NormalizedCacheObject>;
             })
           ),
           E.asVoid,
@@ -739,7 +729,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       // Mark operation as in-flight
       inFlightOperations.add(userHash);
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () => hreaService.createPerson({ name, note }),
           state.apolloClient,
@@ -773,7 +763,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     }): E.Effect<Agent | null, HreaError> => {
       const { name, note } = createUserAgentMapping(params.user);
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () =>
             hreaService.updatePerson({
@@ -832,7 +822,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       // Mark operation as in-flight
       inFlightOperations.add(`create-org-${organizationHash}`);
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () =>
             hreaService.createOrganization({
@@ -873,7 +863,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     }): E.Effect<Agent | null, HreaError> => {
       const { name, note } = createOrganizationAgentMapping(params.organization);
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () =>
             hreaService.updateOrganization({
@@ -909,7 +899,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
 
     const getAllAgents = (): E.Effect<void, HreaError> =>
       withLoadingState(() =>
-        pipe(
+        E.runPromise(withHolo(
           withInitialization(() => hreaService.getAgents(), state.apolloClient, initialize),
           E.tap((fetchedAgents) =>
             E.sync(() => {
@@ -955,7 +945,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
 
       const { name, note } = createServiceTypeResourceSpecMapping(serviceType);
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () => hreaService.createResourceSpecification({ name, note }),
           state.apolloClient,
@@ -988,7 +978,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     }): E.Effect<ResourceSpecification | null, HreaError> => {
       const { name, note } = createServiceTypeResourceSpecMapping(params.serviceType);
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () =>
             hreaService.updateResourceSpecification({
@@ -1047,7 +1037,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
         return E.succeed(existingResourceSpec);
       }
       const { name, note } = createMediumOfExchangeResourceSpecMapping(mediumOfExchange);
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () => hreaService.createResourceSpecification({ name, note }),
           state.apolloClient,
@@ -1091,7 +1081,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
         return E.succeed(false);
       }
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () => hreaService.deleteResourceSpecification({ id: resourceSpec.id }),
           state.apolloClient,
@@ -1139,7 +1129,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
         return E.succeed(false);
       }
 
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () => hreaService.deleteResourceSpecification({ id: resourceSpec.id }),
           state.apolloClient,
@@ -1172,7 +1162,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
 
     const getAllResourceSpecifications = (): E.Effect<void, HreaError> =>
       withLoadingState(() =>
-        pipe(
+        E.runPromise(withHolo(
           withInitialization(
             () => hreaService.getResourceSpecifications(),
             state.apolloClient,
@@ -1197,7 +1187,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       )(setters);
 
     const getAllProposals = (): E.Effect<void, HreaError> => {
-      return pipe(
+      return E.runPromise(withHolo(
         E.sync(() => setters.setLoading(true)),
         E.flatMap(() =>
           withInitialization(() => hreaService.getProposals(), state.apolloClient, initialize)
@@ -1221,7 +1211,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     };
 
     const getAllIntents = (): E.Effect<void, HreaError> => {
-      return pipe(
+      return E.runPromise(withHolo(
         E.sync(() => setters.setLoading(true)),
         E.flatMap(() =>
           withInitialization(() => hreaService.getIntents(), state.apolloClient, initialize)
@@ -1252,7 +1242,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
       users: UIUser[],
       organizations: UIOrganization[]
     ): E.Effect<void, HreaError> => {
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(() => hreaService.getAgents(), state.apolloClient, initialize),
         E.flatMap((agents) =>
           E.gen(function* () {
@@ -1347,7 +1337,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     const createRetroactiveResourceSpecMappings = (
       serviceTypes: UIServiceType[]
     ): E.Effect<void, HreaError> => {
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () => hreaService.getResourceSpecifications(),
           state.apolloClient,
@@ -1423,7 +1413,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
     const createRetroactiveMediumOfExchangeResourceSpecMappings = (
       mediumsOfExchange: UIMediumOfExchange[]
     ): E.Effect<void, HreaError> => {
-      return pipe(
+      return E.runPromise(withHolo(
         withInitialization(
           () => hreaService.getResourceSpecifications(),
           state.apolloClient,
@@ -1609,7 +1599,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
         }
       }
 
-      return pipe(
+      return E.runPromise(withHolo(
         E.gen(function* () {
           // 1. Find the requester agent by action hash reference
           const creatorHash = request.creator?.toString();
@@ -1732,7 +1722,7 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
         }
       }
 
-      return pipe(
+      return E.runPromise(withHolo(
         E.gen(function* () {
           // 1. Find the offerer agent by action hash reference
           const creatorHash = offer.creator?.toString();
@@ -1984,11 +1974,46 @@ export const createHreaStore = (): E.Effect<HreaStore, never, HreaServiceTag> =>
 // STORE INSTANCE CREATION
 // ============================================================================
 
+import { withHolo, runEffectWithHolo } from '$lib/effectEnv';
+
 const hreaStore: HreaStore = pipe(
   createHreaStore(),
   E.provide(HreaServiceLive),
-  E.provide(HolochainClientLive),
+  E.provide(HolochainClientServiceLive),
   E.runSync
 );
 
-export default hreaStore;
+// Factory: provide only HreaService here; Holo layer is provided at run time.
+export const makeHreaStore = () =>
+  pipe(
+    createHreaStore(),        // Effect<HreaStore, never, HreaServiceTag>
+    E.provide(HreaServiceLive)
+  );
+
+// Singleton: memoized promise to avoid races
+let _storePromise: Promise<HreaStore> | null = null;
+
+/** Get the singleton HREA store (lazy-initialized, Layer-provided) */
+export const getHreaStore = (): Promise<HreaStore> => {
+  if (!_storePromise) {
+    // Provide HolochainClientServiceLive at run-time via helper
+    _storePromise = runEffectWithHolo(makeHreaStore());
+  }
+  return _storePromise;
+};
+
+// Backward compatibility shim - allows existing imports to continue working
+const hreaProxy = new Proxy({}, {
+  get(_t, prop) {
+    return async (...args: any[]) => {
+      const s = await getHreaStore();
+      // @ts-expect-error dynamic binding
+      const fn = s[prop];
+      if (typeof fn !== 'function') throw new Error(`hreaStore.${String(prop)} is not a function`);
+      // If methods return Effect, the caller should wrap with runEffectWithHolo
+      return fn.apply(s, args);
+    };
+  }
+}) as unknown as HreaStore;
+
+export default hreaProxy;

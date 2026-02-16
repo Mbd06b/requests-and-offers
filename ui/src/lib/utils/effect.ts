@@ -1,12 +1,13 @@
 import { Effect as E, pipe } from 'effect';
+import { HolochainClientServiceLive } from '$lib/services/holochainClient.service';
 
 /**
- * Runs an Effect and returns a promise, logging any unexpected errors.
+ * Runs an Effect with HolochainClient service layer provided.
  * @param effect - The Effect to run.
  * @returns A promise that resolves with the success value of the Effect.
  */
 export const runEffect = <A, E, R>(effect: E.Effect<A, E, R>): Promise<A> =>
-  E.runPromise(effect as E.Effect<A, E, never>);
+  E.runPromise(E.provide(effect as E.Effect<A, E, never>, HolochainClientServiceLive));
 
 /**
  * Wraps a Promise in an Effect for consistent error handling in composables

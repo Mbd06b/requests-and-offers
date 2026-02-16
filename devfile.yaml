@@ -1,0 +1,142 @@
+schemaVersion: 2.2.0
+metadata:
+  name: recs-and-offers
+  displayName: Rust Development Environment
+  description: Prebuilt Rust + Nix dev container
+  icon: https://www.rust-lang.org/logos/rust-logo-512x512.png
+  tags:
+    - Rust
+    - Nix
+  projectType: rust
+  language: rust
+  version: 1.0.0
+components:
+  - name: rust-dev
+    container:
+      image: harbor.ethosengine.com/devspaces/rust-nix-dev:latest
+      memoryLimit: 6Gi
+      memoryRequest: 1Gi
+      cpuLimit: '2'
+      cpuRequest: 500m
+      mountSources: true
+      sourceMapping: /projects
+      env:
+        - name: UI_PORT
+          value: "3000"
+        - name: AGENTS
+          value: "2"
+        - name: RUST_BACKTRACE
+          value: '1'
+        - name: USER
+          value: user
+        - name: XDG_CACHE_HOME
+          value: /nix-xdg/cache
+        - name: XDG_DATA_HOME
+          value: /nix-xdg/data
+        - name: XDG_STATE_HOME
+          value: /nix-xdg/state
+        - name: XDG_CONFIG_HOME
+          value: /nix-xdg/config
+        - name: NPM_CONFIG_CACHE
+          value: /nix-xdg/cache/npm
+      endpoints:
+        - name: ui-dev
+          targetPort: 3000
+          exposure: public
+          protocol: https
+        - name: hc-playground
+          targetPort: 8282
+          exposure: public
+          protocol: https
+        - name: hc-admin-2
+          targetPort: 8888
+          exposure: public
+          protocol: wss
+        - name: hc-admin-1
+          targetPort: 8889
+          exposure: public
+          protocol: wss
+        - name: hc-app-iface
+          targetPort: 8890
+          exposure: public
+          protocol: wss
+      volumeMounts:
+        - name: dev-storage
+          path: /nix
+        - name: cargo-cache
+          path: /home/user/.cargo
+        - name: rustup-cache
+          path: /home/user/.rustup
+  - name: dev-storage
+    volume:
+      size: 25Gi
+  - name: cargo-cache
+    volume:
+      size: 3Gi
+  - name: rustup-cache
+    volume:
+      size: 2Gi
+commands:
+  - id: rust-init-project
+    exec:
+      label: Initialize Rust Project
+      component: rust-dev
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: |
+        if [ ! -f Cargo.toml ]; then
+          cargo init .
+          echo "✅ Rust project initialized!"
+        else
+          echo "📦 Rust project already exists"
+        fi
+  - id: cargo-build
+    exec:
+      label: Build Rust Project
+      component: rust-dev
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: cargo build
+      group:
+        kind: build
+        isDefault: true
+  - id: cargo-run
+    exec:
+      label: Run Rust Project
+      component: rust-dev
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: cargo run
+      group:
+        kind: run
+        isDefault: true
+  - id: cargo-test
+    exec:
+      label: Test Rust Project
+      component: rust-dev
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: cargo test
+      group:
+        kind: test
+        isDefault: true
+  - id: cargo-clippy
+    exec:
+      label: Run Clippy Linter
+      component: rust-dev
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: cargo clippy -- -D warnings
+  - id: cargo-fmt
+    exec:
+      label: Format Code
+      component: rust-dev
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: cargo fmt
+  - id: install-rust-analyzer
+    exec:
+      label: Install Rust Analyzer (LSP)
+      component: rust-dev
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: |-
+        if ! rustup component list --installed | grep -q rust-analyzer; then
+          rustup component add rust-analyzer
+          echo "✅ Rust Analyzer installed"
+        else
+          echo "📦 Rust Analyzer already installed"
+        fi

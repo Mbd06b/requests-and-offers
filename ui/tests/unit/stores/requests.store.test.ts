@@ -6,6 +6,19 @@ import { createTestRequest, createMockRecord, actionHashToString } from '../test
 import { createTestContext } from '../../mocks/services.mock';
 import type { RequestsService } from '$lib/services/zomes/requests.service';
 import { RequestsServiceTag } from '$lib/services/zomes/requests.service';
+import { CacheServiceTag, CacheServiceLive } from '$lib/utils/cache.svelte';
+import { HolochainClientServiceTag } from '$lib/services/HolochainClientService.svelte';
+
+// Mock the holochain client service
+const createMockHolochainClientService = () => ({
+  appId: 'test-app-id',
+  client: null,
+  isConnected: false,
+  connectClient: vi.fn(),
+  getAppInfo: vi.fn(),
+  callZome: vi.fn(),
+  verifyConnection: vi.fn()
+});
 import { actionHashToSchemaType } from '$lib/utils/type-bridges';
 import { Effect as E } from 'effect';
 
@@ -54,9 +67,27 @@ describe('Requests Store', () => {
       Effect.provide(RequestsServiceTag, testContext.requestsLayer)
     );
 
-    // Create store instance using the Effect pattern
+    // Create mock AppServices for testing
+    const mockAppServices = {
+      holochainClient: {} as any,
+      holochainClientEffect: {} as any,
+      hrea: {} as any,
+      users: {} as any,
+      administration: {} as any,
+      offers: {} as any,
+      requests: mockRequestsService,
+      serviceTypes: {} as any,
+      organizations: {} as any,
+      mediumsOfExchange: {} as any
+    };
+
+    // Create store instance using the Effect pattern with correct service dependencies
     store = await Effect.runPromise(
-      pipe(createRequestsStore(), Effect.provide(testContext.combinedLayer))
+      createRequestsStore().pipe(
+        E.provideService(RequestsServiceTag, mockRequestsService),
+        E.provide(CacheServiceLive),
+        E.provideService(HolochainClientServiceTag, createMockHolochainClientService())
+      )
     );
   });
 

@@ -1,0 +1,46 @@
+---
+data_root_path: /tmp/holochain-web
+admin_interfaces:
+  - driver:
+      type: websocket
+      port: 8888
+      allowed_origins: "*"
+network:
+  bootstrap_url: "https://test-holostrap.elohim.host/"
+  signal_url: "wss://test-holostrap.elohim.host/"
+db_sync_strategy: Resilient
+keystore:
+  type: lair_server_in_proc
+app_interfaces:
+  - driver:
+      type: websocket
+      port: 8890
+      allowed_origins: "*"
+    installed_app_id: test-app
+installed_apps:
+  - id: test-app
+    bundle:
+      bundled: workdir/requests_and_offers.happ
+---
+data_root_path: /tmp/holochain-web-agent2
+admin_interfaces:
+  - driver:
+      type: websocket
+      port: 8892
+      allowed_origins: "*"
+network:
+  bootstrap_url: "https://test-holostrap.elohim.host/"
+  signal_url: "wss://test-holostrap.elohim.host/"
+db_sync_strategy: Resilient
+keystore:
+  type: lair_server_in_proc
+app_interfaces:
+  - driver:
+      type: websocket
+      port: 8889
+      allowed_origins: "*"
+    installed_app_id: test-app
+installed_apps:
+  - id: test-app
+    bundle:
+      bundled: workdir/requests_and_offers.happ

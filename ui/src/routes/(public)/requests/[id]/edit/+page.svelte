@@ -12,7 +12,7 @@
   import type { UIRequest, UIOrganization } from '$lib/types/ui';
   import { runEffect } from '$lib/utils/effect';
   import { Effect as E } from 'effect';
-  import hc from '$lib/services/HolochainClientService.svelte';
+  import { holochainClientService as hc } from '$lib/services/holochainClient.service';
 
   // State
   let isLoading = $state(true);

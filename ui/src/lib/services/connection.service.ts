@@ -1,6 +1,6 @@
 import { Effect as E, Context, Layer, Schedule, Duration, pipe } from 'effect';
 import { HolochainClientError, ConnectionError, HOLOCHAIN_CLIENT_CONTEXTS } from '$lib/errors';
-import hc from './HolochainClientService.svelte';
+import { holochainClientService as hc } from './holochainClient.service';
 
 /**
  * Effect-first connection service for handling Holochain client connections
@@ -20,7 +20,7 @@ export class ConnectionServiceTag extends Context.Tag('ConnectionService')<
 /**
  * Creates the connection service implementation using Effect patterns
  */
-const makeConnectionService = E.gen(function* () {
+const makeConnectionService = E.sync(() => {
   /**
    * Verifies if the client is truly connected by testing connectivity
    */

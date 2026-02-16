@@ -16,6 +16,18 @@ import { runEffect } from '$lib/utils/effect';
 import { fakeActionHash } from '@holochain/client';
 import { CacheServiceLive } from '$lib/utils/cache.svelte';
 import { ServiceTypeStoreError } from '$lib/errors';
+import { HolochainClientServiceTag } from '$lib/services/HolochainClientService.svelte';
+
+// Mock the holochain client service
+const createMockHolochainClientService = () => ({
+  appId: 'test-app-id',
+  client: null,
+  isConnected: false,
+  connectClient: vi.fn(),
+  getAppInfo: vi.fn(),
+  callZome: vi.fn(),
+  verifyConnection: vi.fn()
+});
 
 describe('ServiceTypesStore', () => {
   let store: ServiceTypesStore;
@@ -61,10 +73,25 @@ describe('ServiceTypesStore', () => {
   const createStoreWithService = async (
     service: ServiceTypesService
   ): Promise<ServiceTypesStore> => {
+    // Create mock AppServices for testing
+    const mockAppServices = {
+      holochainClient: {} as any,
+      holochainClientEffect: {} as any,
+      hrea: {} as any,
+      users: {} as any,
+      administration: {} as any,
+      offers: {} as any,
+      requests: {} as any,
+      serviceTypes: service,
+      organizations: {} as any,
+      mediumsOfExchange: {} as any
+    };
+
     return await E.runPromise(
       createServiceTypesStore().pipe(
-        E.provideService(ServiceTypesServiceTag, service),
-        E.provide(CacheServiceLive)
+        E.provideService(ServiceTypesServiceTag, mockServiceTypesService),
+        E.provide(CacheServiceLive),
+        E.provideService(HolochainClientServiceTag, createMockHolochainClientService())
       )
     );
   };

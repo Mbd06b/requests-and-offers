@@ -7,6 +7,7 @@ import { createTestOffer, createMockRecord } from '../test-helpers';
 import { createTestContext } from '../../mocks/services.mock';
 import type { OffersService } from '$lib/services/zomes/offers.service';
 import { OffersServiceTag } from '$lib/services/zomes/offers.service';
+import { CacheServiceLive } from '$lib/utils/cache.svelte';
 import { Effect as E } from 'effect';
 
 // Mock the organizationsStore with a more comprehensive mock that won't try to call Holochain
@@ -55,9 +56,26 @@ describe('Offers Store', () => {
       Effect.provide(OffersServiceTag, testContext.offersLayer)
     );
 
-    // Create store instance using the Effect pattern
+    // Create mock AppServices for testing
+    const mockAppServices = {
+      holochainClient: {} as any,
+      holochainClientEffect: {} as any,
+      hrea: {} as any,
+      users: {} as any,
+      administration: {} as any,
+      offers: mockOffersService,
+      requests: {} as any,
+      serviceTypes: {} as any,
+      organizations: {} as any,
+      mediumsOfExchange: {} as any
+    };
+
+    // Create store instance using the Effect pattern with correct service dependencies
     store = await Effect.runPromise(
-      pipe(createOffersStore(), Effect.provide(testContext.combinedLayer))
+      createOffersStore().pipe(
+        E.provideService(OffersServiceTag, mockOffersService),
+        E.provide(CacheServiceLive)
+      )
     );
   });
 
